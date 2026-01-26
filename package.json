@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "build": "pnpm --filter @hato810424/mc-resources-plugin build",
+    "test": "pnpm --filter @hato810424/mc-resources-plugin test",
+    "dev": "pnpm --filter @hato810424/mc-resources-plugin dev",
+    "dev:vite": "pnpm --filter test dev",
+    "preview": "pnpm build && pnpm --filter test build && pnpm --filter test preview"
+  },
+  "packageManager": "pnpm@10.24.0"
+}

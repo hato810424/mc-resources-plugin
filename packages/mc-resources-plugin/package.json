@@ -1,0 +1,39 @@
+{
+  "name": "@hato810424/mc-resources-plugin",
+  "version": "0.0.1",
+  "type": "module",
+  "author": "hato810424",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hato810424/mc-resources-plugin.git"
+  },
+  "exports": {
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.mjs",
+      "default": "./dist/vite.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tsdown": "^0.18.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  },
+  "dependencies": {
+    "unplugin": "^3.0.0",
+    "vite": "^7.3.1"
+  }
+}
