@@ -68,20 +68,12 @@ function generateGetResourcePackCode({
   isBase64: boolean;
   usedPaths?: Set<string>;
 }): string {
+  let imageMap: string;
+  let imports: string;
+
   // usedPathsが指定されている場合、使用されている画像のみフィルタリング
   const filteredImages = usedPaths ? images.filter(img => usedPaths.has(img.path)) : images;
-  
-  let imports = filteredImages
-      .map((img, index) => {
-        const absolutePath = join(resolve(resourcePackPath), 'assets', 'minecraft', img.relativePath)
-        const fileUrl = new URL(`file://${absolutePath}`).href;
-        
-        return `import _i${index} from "${fileUrl}?import";`;
-      })
-      .join('\n');
-  
-  let imageMap: string;
-  //let imports: string;
+
   if (isBase64) {
     imports = "";
     imageMap = filteredImages
@@ -101,6 +93,15 @@ function generateGetResourcePackCode({
       })
       .join('\n');
   } else {
+    imports = filteredImages
+      .map((img, index) => {
+        const absolutePath = join(resolve(resourcePackPath), 'assets', 'minecraft', img.relativePath)
+        const fileUrl = new URL(`file://${absolutePath}`).href;
+        
+        return `import _i${index} from "${fileUrl}?import";`;
+      })
+      .join('\n');
+
     imageMap = filteredImages
       .map((img, index) => {
         return `    "${img.path}": _i${index},`;
