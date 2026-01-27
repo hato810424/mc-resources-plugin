@@ -15,7 +15,6 @@ const mcResourcesPlugin = (options: PluginOptions) => {
   } = options;
 
   let isGenerated = false;
-
   /**
    * ファイル生成関数
    */
@@ -45,19 +44,27 @@ const mcResourcesPlugin = (options: PluginOptions) => {
     isGenerated = true;
   };
 
+  let isBuild = false;
   return {
     name: '@hato810424/mc-resources-plugin',
 
-    buildStart: () => {
-      generateFiles({ isBase64: true });
+    configResolved: (config) => {
+      if (config.command === 'build') {
+        isBuild = true;
+      }
     },
 
-    generateBundle: () => {
-
-      // ビルド開始時に、使用されている画像をスキャン
-      const root = process.cwd();
-      const detectedPaths = scanSourceCode(root, { include, exclude, outputPath });
-      generateFiles({ usedImagePaths: detectedPaths.size > 0 ? detectedPaths : undefined });
+    buildStart: () => {
+      if (!isBuild) {
+        // dev モード
+        generateFiles({ isBase64: true });
+      } else {
+        // build モード
+        // ビルド開始時に、使用されている画像をスキャン
+        const root = process.cwd();
+        const detectedPaths = scanSourceCode(root, { include, exclude, outputPath });
+        generateFiles({ usedImagePaths: detectedPaths.size > 0 ? detectedPaths : undefined });
+      }
     },
   } satisfies PluginOption;
 };
