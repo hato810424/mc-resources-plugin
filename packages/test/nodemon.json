@@ -1,0 +1,8 @@
+{
+  "watch": [
+    "../mc-resources-plugin/dist",
+    "../mc-resources-plugin/src/**/*.json"
+  ],
+  "delay": "1000",
+  "exec": "vite"
+}

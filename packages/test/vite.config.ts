@@ -8,6 +8,7 @@ export default defineConfig({
     mcResourcesPlugin({
       resourcePackPath: './assets/resource-pack',
       outputPath: './src/mcpacks',
+      startUpCacheRefresh: true,
     })
   ],
 });
