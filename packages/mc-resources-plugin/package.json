@@ -16,8 +16,7 @@
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.mjs",
       "default": "./dist/vite.mjs"
-    },
-    "./package.json": "./package.json"
+    }
   },
   "sideEffects": false,
   "files": [

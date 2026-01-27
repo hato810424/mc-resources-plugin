@@ -1,5 +1,5 @@
 import { expect, test, describe } from 'vitest'
-import mcResourcesPlugin from '../../src/vite'
+import mcResourcesPlugin from '../../src/plugin/vite'
 import { build } from 'vite'
 import { accessSync, readFileSync } from 'node:fs'
 import { join } from 'node:path';

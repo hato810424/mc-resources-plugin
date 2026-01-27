@@ -1,8 +1,9 @@
 import { createVitePlugin } from 'unplugin';
-import type { PluginOptions } from './types';
-import { getAllImages, initializeOutputDirectory, writeFiles } from './filesystem';
-import { generateGetResourcePackCode, generateTypeDefinitions } from './codeGenerator';
-import { scanSourceCode } from './codeScanner';
+import type { PluginOptions } from '../types';
+import { getAllImages, initializeOutputDirectory, writeFiles } from '../filesystem';
+import { generateGetResourcePackCode, generateTypeDefinitions } from '../codeGenerator';
+import { scanSourceCode } from '../codeScanner';
+import manifest from '../../package.json';
 
 const mcResourcesPlugin = createVitePlugin((options: PluginOptions) => {
   const {
@@ -39,7 +40,7 @@ const mcResourcesPlugin = createVitePlugin((options: PluginOptions) => {
 
     const displayCount = usedImagePaths ? usedImagePaths.size : images.length;
     console.log(
-      `[mc-resources-plugin] Generated with ${displayCount} images (found ${images.length} total)`
+      `[mc-resources-plugin ${manifest.version}] Generated with ${displayCount} images (found ${images.length} total)`
     );
 
     isGenerated = true;
