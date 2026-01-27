@@ -1,5 +1,5 @@
-import { readdirSync, statSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
-import { join, relative, extname, resolve } from 'node:path';
+import { readdirSync, statSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { join, relative, extname } from 'node:path';
 
 /**
  * resourcePackPath/assets/minecraft 内のすべての画像ファイルを再帰的に取得
