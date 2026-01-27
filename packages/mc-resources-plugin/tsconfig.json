@@ -3,7 +3,7 @@
     "target": "esnext",
     "lib": ["es2023"],
     "moduleDetection": "force",
-    "module": "preserve",
+    "module": "esnext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "types": ["node"],
@@ -19,6 +19,6 @@
       "tests": ["./tests/*"]
     }
   },
-  "include": ["src"],
-  "exclude": ["node_modules"]
+  "include": ["src", "tests"],
+  "exclude": ["node_modules", "dist"]
 }
