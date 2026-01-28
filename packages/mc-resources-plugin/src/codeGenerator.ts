@@ -1,36 +1,71 @@
-import { readFileSync } from 'node:fs';
+import { promises as fsPromises } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import type { ImageInfo } from './types';
 import type { ItemManager } from './mojang/itemManager';
 import { format } from 'node:util';
 
+const MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
+/**
+ * 複数の画像を並列に読み込む（バッチ処理）
+ */
+async function readImagesInParallel(
+  images: ImageInfo[],
+  resourcePackPath: string,
+  itemMap: Record<string, string>,
+  concurrency: number = 20
+): Promise<(string | null)[]> {
+  const results: (string | null)[] = new Array(images.length);
+  
+  for (let i = 0; i < images.length; i += concurrency) {
+    const batch = images.slice(i, i + concurrency);
+    const batchPromises = batch.map(async (img, batchIndex) => {
+      const imageIndex = i + batchIndex;
+      const absolutePath = join(resolve(resourcePackPath), 'assets', 'minecraft', img.relativePath);
+      const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
+      const itemPath = itemMap[itemId];
+
+      if (!itemPath) {
+        return null;
+      }
+
+      try {
+        const imageData = await fsPromises.readFile(absolutePath);
+        const base64 = imageData.toString('base64');
+        const ext = extname(img.path).toLowerCase();
+        const mimeType = MIME_TYPES[ext] || 'image/png';
+        return `    "${itemId}": "data:${mimeType};base64,${base64}",`;
+      } catch (error) {
+        console.warn(`Failed to read image ${absolutePath}:`, error);
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    batchResults.forEach((result, index) => {
+      results[i + index] = result;
+    });
+  }
+
+  return results;
+}
+
 /**
  * Base64形式の画像マップを生成
  */
-function generateBase64ImageMap(images: ImageInfo[], resourcePackPath: string, itemMap: Record<string, string>): string {
-  return images
-    .map((img) => {
-      const absolutePath = join(resolve(resourcePackPath), 'assets', 'minecraft', img.relativePath);
-      const imageData = readFileSync(absolutePath);
-      const base64 = imageData.toString('base64');
-      const ext = extname(img.path).toLowerCase();
-      const mimeType: Record<string, string> = {
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp',
-      };
-      const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
-      const itemPath = itemMap[itemId];
-      if (itemPath) {
-        return `    "${itemId}": "data:${mimeType[ext] || 'image/png'};base64,${base64}",`;
-      } else {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .join('\n');
+async function generateBase64ImageMap(
+  images: ImageInfo[],
+  resourcePackPath: string,
+  itemMap: Record<string, string>
+): Promise<string> {
+  const results = await readImagesInParallel(images, resourcePackPath, itemMap);
+  return results.filter(Boolean).join('\n');
 }
 
 /**
@@ -94,15 +129,25 @@ export async function generateGetResourcePackCode({
     return usedIds.has(itemId);
   }) : images;
 
-  // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング
+  // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング（並列化）
   const itemMap: Record<string, string> = {};
-  for (const img of filteredImages) {
-    const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
+  
+  if (itemManager) {
+    const itemMapPromises = filteredImages.map(async (img) => {
+      const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
+      if (itemId) {
+        const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
+        if (texturePath) {
+          return { itemId, texturePath };
+        }
+      }
+      return null;
+    });
 
-    if (itemId && itemManager) {
-      const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
-      if (texturePath) {
-        itemMap[itemId] = texturePath;
+    const results = await Promise.all(itemMapPromises);
+    for (const result of results) {
+      if (result) {
+        itemMap[result.itemId] = result.texturePath;
       }
     }
   }
@@ -112,7 +157,7 @@ export async function generateGetResourcePackCode({
 
   if (isBase64) {
     imports = '';
-    imageMap = generateBase64ImageMap(filteredImages, resourcePackPath, itemMap);
+    imageMap = await generateBase64ImageMap(filteredImages, resourcePackPath, itemMap);
   } else {
     imports = generateImportStatements(filteredImages, resourcePackPath, usedIds ?? new Set());
     imageMap = generateImportImageMap(filteredImages, itemMap);
@@ -150,18 +195,26 @@ export async function generateTypeDefinitions({
     return usedIds.has(itemId);
   }) : images;
   
-  // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング
+  // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング（並列化）
   if (itemManager && versionId) {
     let itemMap = new Set<string>();
 
-    for (const img of filteredImages) {
+    const itemMapPromises = filteredImages.map(async (img) => {
       const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
 
       if (itemId) {
         const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
         if (texturePath) {
-          itemMap.add(itemId);
+          return itemId;
         }
+      }
+      return null;
+    });
+
+    const results = await Promise.all(itemMapPromises);
+    for (const itemId of results) {
+      if (itemId) {
+        itemMap.add(itemId);
       }
     }
 
