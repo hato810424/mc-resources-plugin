@@ -45,7 +45,7 @@ class ItemManager {
         }
       }
 
-      defaultLogger.info(`Extracted ${itemIds.length} item IDs from ${versionId}`);
+      defaultLogger.debug(`Extracted ${itemIds.length} item IDs from ${versionId}`);
       
       // キャッシュに保存
       this.itemIdsCache.set(versionId, itemIds);
@@ -121,7 +121,7 @@ class ItemManager {
     lang: string = 'en_us'
   ): Promise<Record<string, string>> {
     try {
-      defaultLogger.info(`Loading language file: ${versionId}/${lang}`);
+      defaultLogger.debug(`Loading language file: ${versionId}/${lang}`);
       const langFilePath = await this.versionManager.getLangFile(versionId, lang);
 
       if (!existsSync(langFilePath)) {
@@ -234,7 +234,7 @@ class ItemManager {
         }
       }
 
-      defaultLogger.info(`Found ${items3d.length} 3D items out of ${itemIds.length} total items`);
+      defaultLogger.debug(`Found ${items3d.length} 3D items out of ${itemIds.length} total items`);
       
       // キャッシュに保存
       this.items3dCache.set(versionId, items3d);

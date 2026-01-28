@@ -10,6 +10,7 @@ export default defineConfig({
       mcVersion: '1.18.2',
       outputPath: './src/mcpacks',
       startUpRenderCacheRefresh: true,
+      logLevel: 'debug',
     })
   ],
 });

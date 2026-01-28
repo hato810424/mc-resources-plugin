@@ -5,7 +5,6 @@ import { MinecraftPathResolver, MINECRAFT_PATHS } from './paths';
 
 /**
  * リソースパック内のモデルやテクスチャを解析・管理するモジュール
- * https://github.com/TABmk/minecraft-blocks-render を参考に実装
  */
 
 export interface ResolvedTexture {

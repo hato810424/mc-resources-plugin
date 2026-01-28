@@ -1,10 +1,18 @@
 // This file is based on the code from https://github.com/TABmk/minecraft-blocks-render
 // The original code is licensed under the MIT License.
+//
+// Original work Copyright (c) 2020 TAB_mk
+// Modified work Copyright (c) 2026 hato810424
+//
+// Licensed under the MIT License.
+// https://opensource.org/licenses/MIT
+//
 import { createCanvas, loadImage, Canvas, CanvasRenderingContext2D } from 'canvas';
 import { readFile, readdir, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import sharp from 'sharp';
 import { MinecraftPathResolver } from './paths';
+import { CONFIG } from '../env';
 
 interface Vec3 {
   x: number;
@@ -313,7 +321,7 @@ export class MinecraftBlockRenderer {
     const {
       width,
       height,
-      rotation = [-30, 45, 0],
+      rotation = CONFIG.ROTATION,
     } = options;
 
     // scaleが未指定の場合、height, widthどちらか小さい方のサイズに基づいて動的に計算

@@ -3,6 +3,7 @@
  * リソースパック解析とレンダリングの統合ファサード
  */
 
+import { CONFIG } from '../env';
 import { ResourcePackBuilder } from './Builder';
 import type { ResolvedModel, ResolvedItem } from './Builder';
 import { MinecraftBlockRenderer } from './Renderer';
@@ -64,10 +65,10 @@ class MinecraftResourcePack {
   ): Promise<{ success: string[]; failed: string[] }> {
     const {
       outputDir = './renders',
-      width = 512,
-      height = options.width ?? 512,
+      width = CONFIG.WIDTH,
+      height = options.width ?? CONFIG.HEIGHT,
       scale,
-      rotation = [-30, 45, 0],
+      rotation = CONFIG.ROTATION,
       dryRun = false,
     } = options;
     const renderOptions = { width, height, scale, rotation };

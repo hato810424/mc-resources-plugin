@@ -4,13 +4,13 @@ import { generateGetResourcePackCode, generateTypeDefinitions } from '../codeGen
 import { scanSourceCode } from '../codeScanner';
 import type { PluginOption } from 'vite';
 import defaultLogger from '../logger';
-import { existsSync, rmSync } from 'fs';
+import { existsSync, rmSync, mkdirSync } from 'fs';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { createResourcePack, type MinecraftResourcePack } from '../render/ResourcePack';
 import { createVersionManager, type MinecraftVersionManager } from '../mojang/minecraftVersionManager';
 import { createItemManager, type ItemManager } from '../mojang/itemManager';
-import { CACHE_DIR } from '../cache';
+import { CONFIG } from '../env';
 
 // グローバルインスタンス
 let globalVersionManager: MinecraftVersionManager | undefined = undefined;
@@ -36,13 +36,16 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
   const {
     mcVersion,
     resourcePackPath,
-    outputPath = './mcpacks',
-    emptyOutDir = false,
-    include = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
-    exclude = [],
-    cacheDir = CACHE_DIR!,
-    startUpRenderCacheRefresh = false,
+    outputPath = CONFIG.OUTPUT_DIR,
+    emptyOutDir = CONFIG.EMPTY_OUT_DIR,
+    include = CONFIG.INCLUDE,
+    exclude = CONFIG.EXCLUDE,
+    cacheDir = CONFIG.CACHE_DIR!,
+    startUpRenderCacheRefresh = CONFIG.START_UP_RENDER_CACHE_REFRESH,
+    logLevel = CONFIG.LOG_LEVEL,
   } = validatedOptions;
+
+  defaultLogger.setLogLevel(logLevel);
 
   const renderingTasks = new Map<string, Promise<Buffer>>();
   let fileGenerationPromise: Promise<void> | null = null;
@@ -54,10 +57,12 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
     usedIds = undefined,
     isBase64 = false,
     ensureItems3d = false,
+    items3dUrlMap = undefined,
   }: {
     usedIds?: Set<string>;
     isBase64?: boolean;
     ensureItems3d?: boolean;
+    items3dUrlMap?: Map<string, string>;
   } = {}): Promise<void> => {
     if (isGenerated) return; // 既に生成済みの場合スキップ
 
@@ -78,7 +83,15 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
 
       const images = getAllImages(resourcePackPath);
       
-      const jsCode = await generateGetResourcePackCode({ images, resourcePackPath, isBase64, usedIds, itemManager: globalItemManager, versionId: mcVersion });
+      const jsCode = await generateGetResourcePackCode({ 
+        images, 
+        resourcePackPath, 
+        isBase64, 
+        usedIds, 
+        itemManager: globalItemManager, 
+        versionId: mcVersion,
+        items3dUrlMap,
+      });
       const tsCode = await generateTypeDefinitions({ images, usedIds, itemManager: globalItemManager, versionId: mcVersion });
 
       // 出力ディレクトリを初期化
@@ -101,6 +114,111 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
   let resourcePack: MinecraftResourcePack | null = null;
   let outDir: string;
   let configResolvedDone = false;
+
+  /**
+   * ビルド時に3Dアイテムをレンダリング（outputPath配下に保存）
+   */
+  const renderItems3dForBuildWithEmit = async (
+    detectedIds: Set<string>,
+    renderingOptions?: Map<string, { itemId: string; optionHash: string; width?: number; height?: number; scale?: number }>
+  ): Promise<Map<string, string>> => {
+    const itemUrlMap = new Map<string, string>();
+    
+    if (!globalItemManager || detectedIds.size === 0) {
+      return itemUrlMap;
+    }
+
+    try {
+      // ビルド時は3Dアイテムリストを完全に取得（キャッシュなし）
+      const items3dList = await globalItemManager.get3DItems(mcVersion);
+      const items3dSet = new Set(items3dList);
+      
+      // 検出されたIDと3Dアイテムの交差を取得
+      const items3dToRender = Array.from(detectedIds).filter(id => items3dSet.has(id));
+      
+      if (items3dToRender.length === 0) {
+        return itemUrlMap;
+      }
+
+      defaultLogger.info(`Rendering ${items3dToRender.length} 3D items for build...`);
+      
+      // アセット取得
+      const assetsDirPath = await globalVersionManager!.getAssets(mcVersion);
+      
+      // ResourcePack インスタンスを初期化
+      if (!resourcePack) {
+        resourcePack = createResourcePack(resourcePackPath, assetsDirPath);
+      }
+
+      // 出力ディレクトリの rendered-items フォルダを作成
+      const renderedItemsDir = join(outputPath, 'rendered-items');
+      if (existsSync(renderedItemsDir)) {
+        rmSync(renderedItemsDir, { recursive: true });
+      }
+      mkdirSync(renderedItemsDir, { recursive: true });
+
+      // レンダリング対象の組み合わせを構築
+      const renderTargets: { itemId: string; optionHash?: string; width?: number; height?: number; scale?: number }[] = [];
+      const processedItems = new Set<string>();
+      
+      // オプションが指定されているアイテムをレンダリング
+      if (renderingOptions && renderingOptions.size > 0) {
+        for (const [, opt] of renderingOptions) {
+          if (items3dSet.has(opt.itemId)) {
+            renderTargets.push({
+              itemId: opt.itemId,
+              optionHash: opt.optionHash,
+              width: opt.width,
+              height: opt.height,
+              scale: opt.scale,
+            });
+            processedItems.add(opt.itemId);
+          }
+        }
+      }
+      
+      // オプション指定されていないアイテムをデフォルトでレンダリング
+      for (const itemId of items3dToRender) {
+        if (!processedItems.has(itemId)) {
+          renderTargets.push({ itemId });
+        }
+      }
+
+      // 各組み合わせをレンダリング
+      for (const target of renderTargets) {
+        try {
+          const cleanId = target.itemId.replace('minecraft:', '');
+          // デフォルト時はhashを含めない
+          const fileName = target.optionHash && target.optionHash !== 'default' ? `${cleanId}_${target.optionHash}.png` : `${cleanId}.png`;
+          const outputFile = join(renderedItemsDir, fileName);
+          
+          const modelPath = `block/${cleanId}`;
+          
+          const renderOptions = {
+            width: target.width ?? CONFIG.WIDTH,
+            height: target.height ?? target.width ?? CONFIG.WIDTH,
+            ...(target.scale !== undefined && { scale: target.scale })
+          };
+          
+          await resourcePack.getRenderer().renderBlock(modelPath, outputFile, renderOptions);
+          defaultLogger.info(`Rendered: ${target.itemId} with options: ${JSON.stringify(renderOptions)}`);
+          
+          const mapKey = target.optionHash ? `${target.itemId}_${target.optionHash}` : target.itemId;
+          // 相対パスを記録（importで使用）
+          const relativePath = `./rendered-items/${fileName}`;
+          itemUrlMap.set(mapKey, relativePath);
+          defaultLogger.info(`Rendered item saved: ${mapKey} -> ${relativePath}`);
+        } catch (err) {
+          defaultLogger.warn(`Failed to render ${target.itemId} with options ${target.optionHash || 'default'}: ${err}`);
+        }
+      }
+    } catch (error) {
+      defaultLogger.error(`Failed to render items for build: ${error}`);
+    }
+
+    return itemUrlMap;
+  };
+  
   return {
     name: '@hato810424/mc-resources-plugin',
 
@@ -122,11 +240,7 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
       globalItemManager = createItemManager(globalVersionManager);
 
       if (!isBuild && !isPreview) {
-        // dev モード時：軽量な初期化のみ
-        // 重い処理（アセット取得、3Dアイテム検出）はバックグラウンドで遅延実行
-        // 起動速度を最優先
-        defaultLogger.info('Dev mode: Heavy initialization deferred to background');
-        
+        // dev モード
         // アセット取得をバックグラウンドで非同期実行
         setTimeout(() => {
           globalVersionManager!.getAssets(mcVersion).catch(err => {
@@ -142,7 +256,7 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
         }, 2000);
       } else {
         // build / preview モード時：即座にアセット取得
-        globalVersionManager.getAssets(mcVersion).catch(err => {
+        await globalVersionManager.getAssets(mcVersion).catch(err => {
           defaultLogger.warn(`Failed to pre-fetch assets: ${err}`);
         });
       }
@@ -150,7 +264,7 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
       outDir = config.build.outDir;
     },
 
-    buildStart: async () => {
+    buildStart: async function() {
       if (isPreview) {
         return;
       }
@@ -161,17 +275,32 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
       }
 
       if (!isBuild) {
-        // dev モード: ファイル生成を遅延化（初回アクセス時に実行）
-        // buildStart では何もしない
-        defaultLogger.info('Dev mode: File generation deferred to first access');
+        // dev モード
       } else {
-        // build モード: 即座にファイル生成
-        // ビルド開始時に、使用されているMinecraft IDをスキャン
+        // build モード: 事前にレンダリング
+        try {
+          await globalVersionManager!.getAssets(mcVersion);
+        } catch (err) {
+          defaultLogger.warn(`Failed to get assets: ${err}`);
+        }
+        
+        // ビルド開始時に、使用されているMinecraft IDをスキャン（オプション情報も抽出）
         const root = process.cwd();
-        const detectedIds = scanSourceCode(root, { include, exclude, outputPath, viteOutDir: outDir });
-        await generateFiles({ usedIds: detectedIds.size > 0 ? detectedIds : undefined });
+        const scanResult = scanSourceCode(root, { include, exclude, outputPath, viteOutDir: outDir });
+        const detectedIds = scanResult.usedIds;
+        const renderingOptions = scanResult.renderingOptions;
+        
+        // ビルド時に3Dアイテムをレンダリング（実際のURLで記録）
+        const items3dUrlMap = await renderItems3dForBuildWithEmit(detectedIds, renderingOptions);
+        
+        // ファイル生成（実際のレンダリングURLを渡す）
+        await generateFiles({ 
+          usedIds: detectedIds.size > 0 ? detectedIds : undefined,
+          items3dUrlMap 
+        });
       }
     },
+
 
     // レンダリングが必要なアイテム
     configureServer: (server) => {
@@ -182,7 +311,7 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
         // dev モード時かつまだ生成していない場合、バックグラウンドで生成開始
         if (!isBuild && !isGenerated && !fileGenerationStarted) {
           fileGenerationStarted = true;
-          defaultLogger.info('Starting file generation in background...');
+          defaultLogger.debug('Starting file generation in background...');
           
           // ファイル生成をバックグラウンドで実行（await しない）
           generateFiles({ isBase64: true, ensureItems3d: true }).catch(err => {
@@ -219,9 +348,12 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             res.end(imageBuffer);
           };
 
-          // キャッシュキーにサイズ情報を含める
-          const cacheKey = `${minecraftId}_${width}x${height}_${scale ? scale : ''}.png`;
-          const cacheFile = join(cacheDir!, 'renders', cacheKey);
+          // キャッシュキーにサイズ情報を含める（オプションの順序を統一）
+          const scaleStr = scale !== undefined ? `_${scale}` : '';
+          const cacheKey = `${minecraftId}_${width}x${height}${scaleStr}.png`;
+          const cacheFile = join(cacheDir!, 'renders' , cacheKey);
+          
+          defaultLogger.debug(`Processing request: id=${minecraftId}, width=${width}, height=${height}, scale=${scale}, cacheKey=${cacheKey}`);
           
           // 1. ファイルキャッシュを確認
           if (existsSync(cacheFile)) {
@@ -232,9 +364,8 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
           }
 
           // 2. 既にレンダリング中のタスクがあれば、それを待つ
-          if (renderingTasks.has(minecraftId)) {
-            defaultLogger.info(`Waiting for pending render: ${minecraftId}`);
-            const imageBuffer = await renderingTasks.get(minecraftId)!;
+          if (renderingTasks.has(cacheKey)) {
+            const imageBuffer = await renderingTasks.get(cacheKey)!;
             sendResponse(imageBuffer);
             return;
           }
@@ -245,7 +376,6 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             
             // ファイル生成がまだ進行中なら待つ
             if (fileGenerationPromise) {
-              defaultLogger.info(`Waiting for file generation to complete...`);
               await fileGenerationPromise;
             }
             
@@ -269,17 +399,17 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             await resourcePack.getRenderer().renderBlock(modelPath, cacheFile, renderOptions);
 
             const imageBuffer = readFileSync(cacheFile);
-            defaultLogger.info(`Rendered and cached: ${minecraftId}`);
+            defaultLogger.info(`Rendered: ${minecraftId} with options: ${JSON.stringify(renderOptions)}`);
             return imageBuffer;
           })();
 
-          renderingTasks.set(minecraftId, renderPromise);
+          renderingTasks.set(cacheKey, renderPromise);
 
           try {
             const imageBuffer = await renderPromise;
             sendResponse(imageBuffer);
           } finally {
-            renderingTasks.delete(minecraftId);
+            renderingTasks.delete(cacheKey);
           }
         } catch (error) {
           defaultLogger.error(`Failed to render minecraft item: ${error}`);
@@ -287,9 +417,16 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             res.statusCode = 500;
             res.end('Failed to render minecraft item');
           }
-          const minecraftId = req.url?.replace('/@hato810424:mc-resources-plugin/minecraft:', '').split('?')[0];
-          if (minecraftId) {
-            renderingTasks.delete(minecraftId);
+          const url = new URL(req.url || '', `http://${req.headers.host}`);
+          const extractedId = url.pathname.replace('/@hato810424:mc-resources-plugin/minecraft:', '');
+          const width = parseInt(url.searchParams.get('width') ?? '128', 10);
+          const height = parseInt(url.searchParams.get('height') ?? String(width), 10);
+          const scaleParam = url.searchParams.get('scale');
+          const scale = scaleParam ? parseFloat(scaleParam) : undefined;
+          const scaleStr = scale !== undefined ? `_${scale}` : '';
+          const errorCacheKey = `${extractedId}_${width}x${height}${scaleStr}.png`;
+          if (extractedId) {
+            renderingTasks.delete(errorCacheKey);
           }
         }
       })

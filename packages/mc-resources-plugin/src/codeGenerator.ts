@@ -114,6 +114,7 @@ export async function generateGetResourcePackCode({
   usedIds,
   itemManager,
   versionId,
+  items3dUrlMap,
 }: {
   images: ImageInfo[];
   resourcePackPath: string;
@@ -121,6 +122,7 @@ export async function generateGetResourcePackCode({
   usedIds?: Set<string>;
   itemManager?: ItemManager;
   versionId: string;
+  items3dUrlMap?: Map<string, string>;
 }): Promise<string> {
   // usedIdsが指定されている場合、使用されているアイテムのみフィルタリング
   let filteredImages = usedIds ? images.filter(img => {
@@ -198,39 +200,84 @@ export async function generateGetResourcePackCode({
     imageMap = await generateBase64ImageMap(filteredImages, resourcePackPath, itemMap);
   } else {
     imports = generateImportStatements(filteredImages, resourcePackPath, usedIds ?? new Set());
-    // itemMapが空の場合は、すべての画像をマップする
-    if (Object.keys(itemMap).length === 0) {
-      // フォールバック：itemMapがない場合は、使用可能なすべての画像をマップ
-      imageMap = filteredImages
-        .map((img, index) => {
-          const itemId = `minecraft:${img.path.split('/').pop()?.replace(/\.[^.]+$/, '')}`;
+    
+    // 全フィルタード画像をシンプルにマッピング（ただし3Dアイテムは除外）
+    imageMap = filteredImages
+      .map((img, index) => {
+        const itemId = `minecraft:${img.path.split('/').pop()?.replace(/\.[^.]+$/, '')}`;
+        // 3Dアイテムでない場合のみマッピングに追加
+        if (!items3d.has(itemId)) {
           return `    "${itemId}": _i${index},`;
-        })
-        .join('\n');
-    } else {
-      imageMap = generateImportImageMap(filteredImages, itemMap);
-    }
+        }
+        return null;
+      })
+      .filter(Boolean)
+      .join('\n');
   }
 
   // 3Dアイテムのマッピングを追加
+  let items3dImports = '';
   let items3dMap = '';
+  const itemHashMap = new Map<string, Map<string, string>>(); // itemId -> (optionHash -> importVar)
+  
   if (items3d.size > 0) {
-    const items3dEntries = Array.from(items3d)
-      .map(itemId => `    "${itemId}": "/@hato810424:mc-resources-plugin/minecraft:${itemId.replace('minecraft:', '')}"`)
-      .join(',\n');
-    items3dMap = items3dEntries ? `,\n${items3dEntries}` : '';
+    let importIndex = 0;
+    
+    // まずインポート文を生成し、各itemIdとオプションハッシュをマッピング
+    if (items3dUrlMap) {
+      for (const [key, renderedPath] of items3dUrlMap) {
+        const parts = key.split('_');
+        const itemId = parts[0]; // minecraft:xxx
+        const optionHash = parts.slice(1).join('_') || 'default'; // オプションハッシュ、またはデフォルト
+        
+        const importVarName = `_r3d${importIndex}`;
+        items3dImports += `import ${importVarName} from "${renderedPath}";\n`;
+        
+        if (!itemHashMap.has(itemId)) {
+          itemHashMap.set(itemId, new Map());
+        }
+        itemHashMap.get(itemId)!.set(optionHash, importVarName);
+        importIndex++;
+      }
+    }
+    
+    // リソースパックマッピングを生成
+    const items3dEntries: string[] = [];
+    for (const itemId of items3d) {
+      const hashMap = itemHashMap.get(itemId);
+      if (hashMap && hashMap.size > 0) {
+        // ビルド時にレンダリングされた画像がある場合
+        for (const [optionHash, importVar] of hashMap) {
+          if (optionHash === 'default') {
+            // デフォルトはそのままitemIdをキーに
+            items3dEntries.push(`    "${itemId}": ${importVar}`);
+          } else {
+            // オプション付きは `itemId_optionHash` をキーに
+            items3dEntries.push(`    "${itemId}_${optionHash}": ${importVar}`);
+          }
+        }
+      } else {
+        // ビルド時にレンダリングされない場合は、デフォルトのエンドポイント
+        items3dEntries.push(`    "${itemId}": "/@hato810424:mc-resources-plugin/minecraft:${itemId.replace('minecraft:', '')}"`);
+      }
+    }
+    items3dMap = items3dEntries.join(',\n');
   }
 
-  // imageMapの末尾の,を削除（3Dアイテムがある場合のみ）
-  let finalImageMap = imageMap;
-  if (items3dMap && imageMap.trim().endsWith(',')) {
-    finalImageMap = imageMap.trimEnd().slice(0, -1);
+  // 最後のカンマを削除（オブジェクトの最後の要素にはカンマが不要）
+  let finalMap = imageMap;
+  if (items3dMap) {
+    finalMap += items3dMap;
+  }
+  // 最後のカンマを削除
+  if (finalMap.endsWith(',')) {
+    finalMap = finalMap.slice(0, -1);
   }
 
-  return `${imports}
+  return `${items3dImports}${imports}
 
 const resourcePack = {
-${finalImageMap}${items3dMap}
+${finalMap}
 };
 
 function buildQueryString(params) {
@@ -244,7 +291,25 @@ function buildQueryString(params) {
   ).toString();
 }
 
+function generateOptionHash(width, height, scale) {
+  const parts = [];
+  if (width !== undefined) parts.push(\`w\${width}\`);
+  if (height !== undefined) parts.push(\`h\${height}\`);
+  if (scale !== undefined) parts.push(\`s\${scale}\`);
+  return parts.join('_');
+}
+
 export function getResourcePack(itemId, options = {}) {
+  // ビルド時にレンダリングされた画像を優先的に使用
+  if (options.width || options.height || options.scale) {
+    const optionHash = generateOptionHash(options.width, options.height, options.scale);
+    const hashKey = \`\${itemId}_\${optionHash}\`;
+    const hashedUrl = resourcePack[hashKey];
+    if (hashedUrl) {
+      return hashedUrl;
+    }
+  }
+  
   const resourceUrl = resourcePack[itemId] ?? null;
   if (!resourceUrl) return null;
   

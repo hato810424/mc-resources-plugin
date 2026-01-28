@@ -12,6 +12,7 @@ export const PluginOptionsSchema = z.object({
   exclude: z.array(z.string()).optional(),
   cacheDir: z.string().optional(),
   startUpRenderCacheRefresh: z.boolean().optional(),
+  logLevel: z.enum(['info', 'debug', 'error'] as const).optional(),
 });
 
 export type PluginOptions = z.infer<typeof PluginOptionsSchema>;

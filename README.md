@@ -1,6 +1,10 @@
 # @hato810424/mc-resources-plugin
 MinecraftのリソースパックをWebで使用しやすくするViteプラグインです。
 
+## 特徴
+- Mojang APIを使用して、Minecraftのバージョンごとにモデルを取得し、レンダリングします。
+- リソースパックのパスを指定するだけで、簡単にリソースパックを使用できます。
+
 ## 使い方
 最低限の設定は以下の通りです。
 ```ts
@@ -61,3 +65,10 @@ always exclude: `['node_modules', '.git', '*.d.ts']`
 
 ### startUpRenderCacheRefresh (default: false)
 起動時にレンダーキャッシュを更新するかどうかを指定します。
+
+### logLevel (default: 'info')
+ログレベルを指定します。
+
+- debug: デバッグログ（詳しい）
+- info: デフォルトのログレベル（ふつう）
+- error: エラーログのみ表示
