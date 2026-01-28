@@ -27,6 +27,13 @@ export class MinecraftResourcePack {
   }
 
   /**
+   * レンダラーを取得（内部使用）
+   */
+  getRenderer(): MinecraftBlockRenderer {
+    return this.renderer;
+  }
+
+  /**
    * すべてのブロックモデルを取得
    */
   async getAllBlockModels(): Promise<ResolvedModel[]> {

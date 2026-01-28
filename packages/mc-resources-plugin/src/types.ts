@@ -4,6 +4,8 @@ export interface PluginOptions {
   emptyOutDir?: boolean;
   include?: string[]; // glob形式のファイルパターン (例: ['**/*.ts', '**/*.tsx'])
   exclude?: string[]; // glob形式の除外パターン (例: ['node_modules', 'dist/*',])
+  cacheDir?: string;
+  startUpCacheRefresh?: boolean;
 }
 
 export interface ImageInfo {

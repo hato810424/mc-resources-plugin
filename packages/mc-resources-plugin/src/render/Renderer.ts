@@ -311,7 +311,7 @@ export class MinecraftBlockRenderer {
     const {
       width,
       height,
-      rotation = [30, -45, 0],
+      rotation = [-30, 45, 0],
     } = options;
 
     // scaleが未指定の場合、height, widthどちらか小さい方のサイズに基づいて動的に計算
