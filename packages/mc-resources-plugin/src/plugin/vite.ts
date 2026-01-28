@@ -4,14 +4,34 @@ import { generateGetResourcePackCode, generateTypeDefinitions } from '../codeGen
 import { scanSourceCode } from '../codeScanner';
 import type { PluginOption } from 'vite';
 import defaultLogger from '../logger';
-import findCacheDirectory from "find-cache-directory";
 import { existsSync, rmSync } from 'fs';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { createResourcePack, type MinecraftResourcePack } from '../render/ResourcePack';
-import { createVersionManager } from '../mojang/minecraftVersionManager';
+import { createVersionManager, type MinecraftVersionManager } from '../mojang/minecraftVersionManager';
+import { createItemManager, type ItemManager } from '../mojang/itemManager';
+import { CACHE_DIR } from '../cache';
+
+// グローバルインスタンス
+let globalVersionManager: MinecraftVersionManager | undefined = undefined;
+let globalItemManager: ItemManager | undefined = undefined;
+
+export function getVersionManager(): MinecraftVersionManager {
+  if (!globalVersionManager) {
+    throw new Error('VersionManager is not initialized');
+  }
+  return globalVersionManager;
+}
+
+export function getItemManager(): ItemManager {
+  if (!globalItemManager) {
+    throw new Error('ItemManager is not initialized');
+  }
+  return globalItemManager;
+}
 
 const mcResourcesPlugin = async (options: PluginOptions) => {
+  let isGenerated = false;
   const validatedOptions = PluginOptionsSchema.parse(options);
   const {
     mcVersion,
@@ -20,32 +40,27 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
     emptyOutDir = false,
     include = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
     exclude = [],
-    cacheDir = findCacheDirectory({
-      name: '@hato810424/mc-resources-plugin',
-      create: true,
-    }),
+    cacheDir = CACHE_DIR!,
     startUpRenderCacheRefresh = false,
   } = validatedOptions;
 
-  let isGenerated = false;
-  let resourcePack: MinecraftResourcePack | null = null;
   const renderingTasks = new Map<string, Promise<Buffer>>();
   /**
    * ファイル生成関数
    */
-  const generateFiles = ({
-    usedImagePaths = undefined,
+  const generateFiles = async ({
+    usedIds = undefined,
     isBase64 = false,
   }: {
-    usedImagePaths?: Set<string>;
+    usedIds?: Set<string>;
     isBase64?: boolean;
-  } = {}): void => {
+  } = {}): Promise<void> => {
     if (isGenerated) return; // 既に生成済みの場合スキップ
 
     const images = getAllImages(resourcePackPath);
     
-    const jsCode = generateGetResourcePackCode({ images, resourcePackPath, isBase64, usedPaths: usedImagePaths });
-    const tsCode = generateTypeDefinitions(images, usedImagePaths);
+    const jsCode = await generateGetResourcePackCode({ images, resourcePackPath, isBase64, usedIds, itemManager: globalItemManager, versionId: mcVersion });
+    const tsCode = await generateTypeDefinitions({ images, usedIds, itemManager: globalItemManager, versionId: mcVersion });
 
     // 出力ディレクトリを初期化
     initializeOutputDirectory(outputPath, emptyOutDir);
@@ -53,26 +68,42 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
     // ファイルを書き込む
     writeFiles(outputPath, jsCode, tsCode);
 
-    const displayCount = usedImagePaths ? usedImagePaths.size : images.length;
+    const displayCount = usedIds ? usedIds.size : images.length;
     defaultLogger.info(`Generated with ${displayCount} images (found ${images.length} total)`);
 
     isGenerated = true;
   };
-
-  const versionManager = createVersionManager(cacheDir!);
-  versionManager.getAssets(mcVersion);
-
+  
   let isBuild = false;
+  let isPreview = false;
+  let resourcePack: MinecraftResourcePack | null = null;
+  let outDir: string;
   return {
     name: '@hato810424/mc-resources-plugin',
 
     configResolved: (config) => {
+      // グローバルインスタンスの初期化
+      globalVersionManager = createVersionManager(cacheDir!);
+      globalItemManager = createItemManager(globalVersionManager);
+
+      // アセットをMojangから取得
+      globalVersionManager.getAssets(mcVersion);
+
+      outDir = config.build.outDir;
       if (config.command === 'build') {
         isBuild = true;
       }
+
+      if (config.isProduction && config.command === 'serve') {
+        isPreview = true;
+      }
     },
 
-    buildStart: () => {
+    buildStart: async () => {
+      if (isPreview) {
+        return;
+      }
+
       // 起動時にキャッシュをクリア
       if (startUpRenderCacheRefresh) {
         rmSync(join(cacheDir!, 'renders'), { recursive: true, force: true });
@@ -80,13 +111,13 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
 
       if (!isBuild) {
         // dev モード
-        generateFiles({ isBase64: true });
+        await generateFiles({ isBase64: true });
       } else {
         // build モード
-        // ビルド開始時に、使用されている画像をスキャン
+        // ビルド開始時に、使用されているMinecraft IDをスキャン
         const root = process.cwd();
-        const detectedPaths = scanSourceCode(root, { include, exclude, outputPath });
-        generateFiles({ usedImagePaths: detectedPaths.size > 0 ? detectedPaths : undefined });
+        const detectedIds = scanSourceCode(root, { include, exclude, outputPath, viteOutDir: outDir });
+        await generateFiles({ usedIds: detectedIds.size > 0 ? detectedIds : undefined });
       }
     },
 
@@ -138,7 +169,7 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             defaultLogger.info(`Rendering ${minecraftId}...`);
             
             // アセット取得が完了するまで待つ
-            const assetsDirPath = await versionManager.getAssets(mcVersion);
+            const assetsDirPath = await globalVersionManager!.getAssets(mcVersion);
             
             // ResourcePack インスタンスを再利用
             if (!resourcePack) {

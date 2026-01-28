@@ -44,6 +44,7 @@ export const MOJANG_PATHS = {
   manifest: 'https://launchermeta.mojang.com/mc/game/version_manifest.json',
   versionDetails: 'version_details',
   clientJars: 'version_details',
+  langFiles: 'lang_files',
 } as const;
 
 const CACHE_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30;
@@ -94,7 +95,6 @@ class MinecraftVersionManager {
     if (!forceRefresh && existsSync(cachePath) && !this.isCacheExpired(cachePath)) {
       try {
         const cachedData = readFileSync(cachePath, 'utf-8');
-        defaultLogger.debug(`Version manifest loaded from cache`);
         return JSON.parse(cachedData) as VersionManifest;
       } catch (error) {
         defaultLogger.warn(`Failed to read version manifest cache: ${error}`);
@@ -154,7 +154,6 @@ class MinecraftVersionManager {
     if (!forceRefresh && existsSync(cachePath) && !this.isCacheExpired(cachePath)) {
       try {
         const cachedData = readFileSync(cachePath, 'utf-8');
-        defaultLogger.debug(`Version details for ${versionId} loaded from cache`);
         return JSON.parse(cachedData);
       } catch (error) {
         defaultLogger.warn(`Failed to read version details cache: ${error}`);
@@ -201,7 +200,6 @@ class MinecraftVersionManager {
 
     // キャッシュから取得
     if (!forceRefresh && existsSync(clientJarPath) && !this.isCacheExpired(clientJarPath)) {
-      defaultLogger.debug(`Client jar for version ${versionDetails.id} loaded from cache`);
       return clientJarPath;
     }
 
@@ -237,7 +235,6 @@ class MinecraftVersionManager {
     // 既に実行中のタスクがあれば、そのPromiseを返す
     const taskKey = `${versionId}:${forceRefresh}`;
     if (this.assetsFetchingTasks.has(taskKey)) {
-      defaultLogger.debug(`Assets fetch already in progress for ${versionId}, reusing task`);
       return this.assetsFetchingTasks.get(taskKey)!;
     }
 
@@ -247,7 +244,6 @@ class MinecraftVersionManager {
 
       // キャッシュから取得
       if (!forceRefresh && existsSync(assetsDirPath) && !this.isCacheExpired(assetsDirPath)) {
-        defaultLogger.debug(`Assets for version ${versionDetails.id} loaded from cache`);
         return assetsDirPath;
       }
 
@@ -303,6 +299,74 @@ class MinecraftVersionManager {
 
     this.assetsFetchingTasks.set(taskKey, assetsPromise);
     return assetsPromise;
+  }
+
+  async getLangFile(versionId: string, lang: string): Promise<string> {
+    // en_us の場合はアセットから直接取得
+    if (lang === 'en_us') {
+      const assetsDirPath = await this.getAssets(versionId);
+      return join(assetsDirPath, `assets/minecraft/lang/en_us.json`);
+    }
+
+    // 他言語の場合はAsset Indexからダウンロード
+    const langFilePath = join(this.cacheDir, MOJANG_PATHS.langFiles, `${versionId}_${lang}.json`);
+
+    // キャッシュから取得
+    if (existsSync(langFilePath) && !this.isCacheExpired(langFilePath)) {
+      return langFilePath;
+    }
+
+    try {
+      defaultLogger.info(`Downloading language file: ${versionId}/${lang}`);
+
+      // VersionDetails から assetIndex を取得
+      const versionDetails = await this.getVersionDetails(versionId);
+      const assetIndexUrl = versionDetails.assetIndex.url;
+
+      // Asset Index をダウンロード
+      const assetIndexResponse = await fetch(assetIndexUrl);
+      if (!assetIndexResponse.ok) {
+        throw new Error(`Failed to fetch asset index: ${assetIndexResponse.statusText}`);
+      }
+
+      const assetIndex = (await assetIndexResponse.json()) as {
+        objects: Record<string, { hash: string; size: number }>;
+      };
+
+      // 言語ファイルのハッシュを取得
+      const langKey = `minecraft/lang/${lang}.json`;
+      const langObject = assetIndex.objects[langKey];
+
+      if (!langObject) {
+        throw new Error(`Language file not found in asset index: ${langKey}`);
+      }
+
+      const langHash = langObject.hash;
+      const hashPrefix = langHash.substring(0, 2);
+      const langFileUrl = `https://resources.download.minecraft.net/${hashPrefix}/${langHash}`;
+
+      // 言語ファイルをダウンロード
+      const langResponse = await fetch(langFileUrl);
+      if (!langResponse.ok) {
+        throw new Error(`Failed to download language file: ${langResponse.statusText}`);
+      }
+
+      // キャッシュディレクトリを作成
+      const langDir = join(this.cacheDir, 'lang_files');
+      if (!existsSync(langDir)) {
+        mkdirSync(langDir, { recursive: true });
+      }
+
+      // ファイルを保存
+      const langContent = await langResponse.text();
+      writeFileSync(langFilePath, langContent);
+      defaultLogger.info(`Language file cached: ${versionId}/${lang}`);
+
+      return langFilePath;
+    } catch (error) {
+      defaultLogger.error(`Failed to download language file ${lang} for ${versionId}: ${error}`);
+      throw error;
+    }
   }
 
   async getLatestRelease(): Promise<string> {

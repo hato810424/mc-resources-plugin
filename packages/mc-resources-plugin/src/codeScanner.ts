@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { matchesPattern } from './patternMatcher';
 
 /**
- * ソースコードをスキャンして、使用されている画像パスを検出
+ * ソースコードをスキャンして、使用されているMinecraft IDを検出
  */
 export function scanSourceCode(
   root: string,
@@ -11,21 +11,25 @@ export function scanSourceCode(
     include?: string[];
     exclude?: string[];
     outputPath?: string;
+    viteOutDir?: string;
   } = {}
 ): Set<string> {
   const {
     include = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
     exclude = [],
     outputPath = './mcpacks',
+    viteOutDir = './dist',
   } = options;
 
-  const usedPaths = new Set<string>();
+  const usedIds = new Set<string>();
 
+  
   // 常に除外する必須パターン
   const alwaysExclude = ['node_modules', '.git', '*.d.ts'];
   // 出力パスも除外する
   const normalizedOutputPath = outputPath.replace(/^\.\//, '').replace(/\/$/, '');
-  const finalExclude = [...alwaysExclude, normalizedOutputPath, ...exclude];
+  const normalizedViteOutDir = viteOutDir.replace(/^\.\//, '').replace(/\/$/, '');
+  const finalExclude = [...alwaysExclude, normalizedOutputPath, normalizedViteOutDir, ...exclude];
 
   const scanDir = (dir: string, relativeBase: string = '') => {
     try {
@@ -45,7 +49,7 @@ export function scanSourceCode(
         } else if (stat.isFile()) {
           // includeパターンにマッチしたファイルのみ処理
           if (matchesPattern(relativePath, include)) {
-            extractImagePaths(fullPath, usedPaths);
+            extractResourceIds(fullPath, usedIds);
           }
         }
       }
@@ -55,23 +59,29 @@ export function scanSourceCode(
   };
 
   scanDir(root);
-  return usedPaths;
+  return usedIds;
 }
 
 /**
- * ファイルから画像パスを抽出
+ * ファイルからMinecraft IDを抽出
  */
-function extractImagePaths(filePath: string, usedPaths: Set<string>): void {
+function extractResourceIds(filePath: string, usedIds: Set<string>): void {
   try {
     const content = readFileSync(filePath, 'utf-8');
-    // 画像ファイルパスを検出（複数のパターン対応）
-    // パターン1: getResourcePack('/path/to/image.png')
-    // パターン2: ('/path/to/image.png')のような直接参照
-    const pathRegex = /(?:getResourcePack|['"])\s*\(\s*['"]([/]?[^'"]*\.(?:png|jpg|jpeg|gif|webp))["']\s*\)/gi;
+    // minecraft:item/diamond のようなID参照を検出（文字列リテラル内のみ）
+    // パターン1: "minecraft:xxx"
+    const doubleQuoteRegex = /"minecraft:([a-z0-9/_\-\.]+)"/gi;
     let match;
-    while ((match = pathRegex.exec(content)) !== null) {
-      const path = match[1].startsWith('/') ? match[1] : `/${match[1]}`;
-      usedPaths.add(path);
+    while ((match = doubleQuoteRegex.exec(content)) !== null) {
+      const id = `minecraft:${match[1]}`;
+      usedIds.add(id);
+    }
+    
+    // パターン2: 'minecraft:xxx'
+    const singleQuoteRegex = /'minecraft:([a-z0-9/_\-\.]+)'/gi;
+    while ((match = singleQuoteRegex.exec(content)) !== null) {
+      const id = `minecraft:${match[1]}`;
+      usedIds.add(id);
     }
   } catch {
     // ファイル読み込みエラーを無視
