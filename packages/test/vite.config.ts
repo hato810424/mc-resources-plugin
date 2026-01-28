@@ -7,8 +7,9 @@ export default defineConfig({
     react(),
     mcResourcesPlugin({
       resourcePackPath: './assets/resource-pack',
+      mcVersion: '1.18.2',
       outputPath: './src/mcpacks',
-      startUpCacheRefresh: true,
+      startUpRenderCacheRefresh: true,
     })
   ],
 });

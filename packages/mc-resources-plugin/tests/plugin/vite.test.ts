@@ -13,15 +13,17 @@ describe('mc-resources-plugin', () => {
     await build({
       logLevel: 'silent',
       plugins: [
-        mcResourcesPlugin({
+        await mcResourcesPlugin({
           resourcePackPath: 'tests/assets/resource-pack',
+          mcVersion: '1.18.2',
           outputPath: 'tests/dist/mcpacks',
           emptyOutDir: true,
           include: ['**/*.ts', '**/*.tsx'],
           exclude: ["dist", 'exclude_dir'],
         }),
-        mcResourcesPlugin({
+        await mcResourcesPlugin({
           resourcePackPath: 'tests/assets/resource-pack-empty',
+          mcVersion: '1.18.2',
           outputPath: 'tests/dist/mcpacks-empty',
           emptyOutDir: true,
           exclude: ['dist'],

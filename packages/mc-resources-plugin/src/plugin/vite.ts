@@ -1,4 +1,4 @@
-import type { PluginOptions } from '../types';
+import { PluginOptionsSchema, type PluginOptions } from '../types';
 import { getAllImages, initializeOutputDirectory, writeFiles } from '../filesystem';
 import { generateGetResourcePackCode, generateTypeDefinitions } from '../codeGenerator';
 import { scanSourceCode } from '../codeScanner';
@@ -9,9 +9,12 @@ import { existsSync, rmSync } from 'fs';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { createResourcePack, type MinecraftResourcePack } from '../render/ResourcePack';
+import { createVersionManager } from '../mojang/minecraftVersionManager';
 
-const mcResourcesPlugin = (options: PluginOptions) => {
+const mcResourcesPlugin = async (options: PluginOptions) => {
+  const validatedOptions = PluginOptionsSchema.parse(options);
   const {
+    mcVersion,
     resourcePackPath,
     outputPath = './mcpacks',
     emptyOutDir = false,
@@ -21,13 +24,12 @@ const mcResourcesPlugin = (options: PluginOptions) => {
       name: '@hato810424/mc-resources-plugin',
       create: true,
     }),
-    startUpCacheRefresh = false,
-  } = options;
+    startUpRenderCacheRefresh = false,
+  } = validatedOptions;
 
   let isGenerated = false;
   let resourcePack: MinecraftResourcePack | null = null;
   const renderingTasks = new Map<string, Promise<Buffer>>();
-  const memoryCache = new Map<string, Buffer>();
   /**
    * ファイル生成関数
    */
@@ -57,6 +59,9 @@ const mcResourcesPlugin = (options: PluginOptions) => {
     isGenerated = true;
   };
 
+  const versionManager = createVersionManager(cacheDir!);
+  versionManager.getAssets(mcVersion);
+
   let isBuild = false;
   return {
     name: '@hato810424/mc-resources-plugin',
@@ -69,8 +74,8 @@ const mcResourcesPlugin = (options: PluginOptions) => {
 
     buildStart: () => {
       // 起動時にキャッシュをクリア
-      if (startUpCacheRefresh) {
-        rmSync(cacheDir!, { recursive: true, force: true });
+      if (startUpRenderCacheRefresh) {
+        rmSync(join(cacheDir!, 'renders'), { recursive: true, force: true });
       }
 
       if (!isBuild) {
@@ -110,26 +115,17 @@ const mcResourcesPlugin = (options: PluginOptions) => {
             res.end(imageBuffer);
           };
 
-          // 1. メモリキャッシュを確認
-          if (memoryCache.has(minecraftId)) {
-            const imageBuffer = memoryCache.get(minecraftId)!;
-            sendResponse(imageBuffer);
-            defaultLogger.info(`Memory cache hit: ${minecraftId}`);
-            return;
-          }
-
           const cacheFile = join(cacheDir!, 'renders', `${minecraftId}.png`);
           
-          // 2. ファイルキャッシュを確認
+          // 1. ファイルキャッシュを確認
           if (existsSync(cacheFile)) {
             const imageBuffer = readFileSync(cacheFile);
-            memoryCache.set(minecraftId, imageBuffer);
             sendResponse(imageBuffer);
             defaultLogger.info(`File cache hit: ${minecraftId}`);
             return;
           }
 
-          // 3. 既にレンダリング中のタスクがあれば、それを待つ
+          // 2. 既にレンダリング中のタスクがあれば、それを待つ
           if (renderingTasks.has(minecraftId)) {
             defaultLogger.info(`Waiting for pending render: ${minecraftId}`);
             const imageBuffer = await renderingTasks.get(minecraftId)!;
@@ -137,13 +133,16 @@ const mcResourcesPlugin = (options: PluginOptions) => {
             return;
           }
 
-          // 4. レンダリング処理を実行
+          // 3. レンダリング処理を実行
           const renderPromise = (async () => {
             defaultLogger.info(`Rendering ${minecraftId}...`);
             
+            // アセット取得が完了するまで待つ
+            const assetsDirPath = await versionManager.getAssets(mcVersion);
+            
             // ResourcePack インスタンスを再利用
             if (!resourcePack) {
-              resourcePack = createResourcePack(resourcePackPath);
+              resourcePack = createResourcePack(resourcePackPath, assetsDirPath);
             }
             
             // block/ プレフィックスをつけてレンダリング
@@ -154,7 +153,6 @@ const mcResourcesPlugin = (options: PluginOptions) => {
             });
 
             const imageBuffer = readFileSync(cacheFile);
-            memoryCache.set(minecraftId, imageBuffer);
             defaultLogger.info(`Rendered and cached: ${minecraftId}`);
             return imageBuffer;
           })();

@@ -9,7 +9,8 @@ import mcResourcesPlugin from '@hato810424/mc-resources-plugin/vite';
 export default defineConfig({
   plugins: [
     mcResourcesPlugin({
-      resourcePackPath: './assets/resource-pack'
+      resourcePackPath: './assets/resource-pack',
+      mcVersion: '1.18.2',
     })
   ],
 });
@@ -35,6 +36,10 @@ pnpm run dev:vite
 
 minecraft/ 以下の画像ファイルが自動で検出され、出力されます。
 ```
+
+### mcVersion (required)
+Minecraftのバージョンを指定します。<br/>
+Snapshotは指定できません。
 
 ### outputPath (default: './mcpacks')
 出力パスを指定します。<br/>

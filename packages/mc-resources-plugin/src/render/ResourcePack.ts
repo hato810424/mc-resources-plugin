@@ -21,9 +21,9 @@ class MinecraftResourcePack {
   private builder: ResourcePackBuilder;
   private renderer: MinecraftBlockRenderer;
 
-  constructor(resourcePackPath: string) {
+  constructor(resourcePackPath: string, modelPath?: string) {
     this.builder = new ResourcePackBuilder(resourcePackPath);
-    this.renderer = new MinecraftBlockRenderer(resourcePackPath);
+    this.renderer = new MinecraftBlockRenderer(modelPath ?? resourcePackPath);
   }
 
   /**
@@ -157,6 +157,6 @@ class MinecraftResourcePack {
 export type { MinecraftResourcePack, ResolvedModel, ResolvedItem };
 export { ResourcePackBuilder, MinecraftBlockRenderer };
 
-export function createResourcePack(resourcePackPath: string): MinecraftResourcePack {
-  return new MinecraftResourcePack(resourcePackPath);
+export function createResourcePack(resourcePackPath: string, modelPath?: string): MinecraftResourcePack {
+  return new MinecraftResourcePack(resourcePackPath, modelPath);
 }
