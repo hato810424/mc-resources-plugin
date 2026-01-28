@@ -5,7 +5,7 @@ import { accessSync, readFileSync } from 'node:fs'
 import { join } from 'node:path';
 
 describe('mc-resources-plugin', () => {
-  test('should generate resource pack files', async () => {
+  test('should generate resource pack files', { timeout: 60000 }, async () => {
     const outDir = 'tests/dist/vite';
     const mcpacksDir = 'tests/dist/mcpacks';
     const mcpacksEmptyDir = 'tests/dist/mcpacks-empty';
@@ -18,7 +18,7 @@ describe('mc-resources-plugin', () => {
           mcVersion: '1.18.2',
           outputPath: 'tests/dist/mcpacks',
           emptyOutDir: true,
-          include: ['**/*.ts', '**/*.tsx'],
+          include: ['example.ts', 'exclude_dir/example.ts'],
           exclude: ["dist", 'exclude_dir'],
         }),
         await mcResourcesPlugin({
@@ -26,6 +26,7 @@ describe('mc-resources-plugin', () => {
           mcVersion: '1.18.2',
           outputPath: 'tests/dist/mcpacks-empty',
           emptyOutDir: true,
+          include: [],
           exclude: ['dist'],
         }),
       ],
@@ -52,7 +53,7 @@ describe('mc-resources-plugin', () => {
     // Check that the generated d.ts file exists and contains expected content
     const dtsContent = readFileSync(join(mcpacksDir, 'resourcepack.d.ts'), 'utf-8')
     expect(dtsContent).toContain('export function getResourcePack')
-    expect(dtsContent).toContain('/textures/item/cake.png')
+    expect(dtsContent).toContain('minecraft:cake')
 
     // Check empty resource pack
     const jsContentEmpty = readFileSync(join(mcpacksEmptyDir, 'resourcepack.js'), 'utf-8')

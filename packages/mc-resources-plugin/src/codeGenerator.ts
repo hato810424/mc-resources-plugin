@@ -77,7 +77,7 @@ function generateImportStatements(images: ImageInfo[], resourcePackPath: string,
       const fileUrl = new URL(`file://${absolutePath}`).href;
       const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
       if (usedIds.has(itemId)) {
-        return `import _i${index} from "${fileUrl}?import";`;
+        return `import _i${index} from "${fileUrl}";`;
       } else {
         return null;
       }
@@ -181,6 +181,13 @@ export async function generateGetResourcePackCode({
         }
       }
     }
+  } else if (!isBase64) {
+    // itemManagerがない場合は、フィルタード画像から直接テクスチャパスを生成
+    filteredImages.forEach(img => {
+      const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
+      // テクスチャパスを相対パスで設定
+      itemMap[itemId] = `/textures/${img.path}`;
+    });
   }
 
   let imports: string;
@@ -191,7 +198,18 @@ export async function generateGetResourcePackCode({
     imageMap = await generateBase64ImageMap(filteredImages, resourcePackPath, itemMap);
   } else {
     imports = generateImportStatements(filteredImages, resourcePackPath, usedIds ?? new Set());
-    imageMap = generateImportImageMap(filteredImages, itemMap);
+    // itemMapが空の場合は、すべての画像をマップする
+    if (Object.keys(itemMap).length === 0) {
+      // フォールバック：itemMapがない場合は、使用可能なすべての画像をマップ
+      imageMap = filteredImages
+        .map((img, index) => {
+          const itemId = `minecraft:${img.path.split('/').pop()?.replace(/\.[^.]+$/, '')}`;
+          return `    "${itemId}": _i${index},`;
+        })
+        .join('\n');
+    } else {
+      imageMap = generateImportImageMap(filteredImages, itemMap);
+    }
   }
 
   // 3Dアイテムのマッピングを追加
@@ -215,8 +233,23 @@ const resourcePack = {
 ${finalImageMap}${items3dMap}
 };
 
-export function getResourcePack(path) {
-  return resourcePack[path] ?? null;
+function buildQueryString(params) {
+  return new URLSearchParams(
+    Object.entries(params).reduce((acc, [key, value]) => {
+      if (value !== undefined && value !== null) {
+        acc[key] = String(value);
+      }
+      return acc;
+    }, {})
+  ).toString();
+}
+
+export function getResourcePack(itemId, options = {}) {
+  const resourceUrl = resourcePack[itemId] ?? null;
+  if (!resourceUrl) return null;
+  
+  const queryString = buildQueryString(options);
+  return queryString ? \`\${resourceUrl}?\${queryString}\` : resourceUrl;
 }
 
 export default resourcePack;`;
@@ -241,6 +274,14 @@ export async function generateTypeDefinitions({
     return usedIds.has(itemId);
   }) : images;
   
+  const FunctionOptions = `
+type FunctionOptions = {
+  width: number;
+  height?: number;
+  scale?: number;
+};
+  `.replace(/^\n/, '').replace(/[ \t]+$/, '');
+
   // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング（並列化）
   if (itemManager && versionId) {
     let itemMap = new Set<string>();
@@ -299,30 +340,43 @@ export async function generateTypeDefinitions({
     // 3DアイテムをitemMapに追加
     const allItems = new Set([...itemMap, ...items3d]);
 
+    const Items = itemMap;
+    const renderItems = items3d;
+
+    const hasFunctionSignature = allItems.size > 0;
     return format(
       `
-  type Files = %s;
-  %s
-  export const resourcePack: Readonly<Record<Files, string>>;
-  export default resourcePack;
+      type ItemId = %s;
+      type RenderingItemId = %s;
+      %s
+      %s
+      export const resourcePack: Readonly<Record<ItemId | RenderingItemId, string>>;
+      export default resourcePack;
       `
         .replace(/^\n/, '')
         .replace(/[ \t]+$/, ''),
-      allItems.size > 0 ? Array.from(allItems).map((item) => `"${item}"`).join(' | ') : '""',
-      allItems.size > 0 ? 'export function getResourcePack(path: Files): string;' : ''
+      Items.size > 0 ? Array.from(Items).map((item) => `"${item}"`).join(' | ') : '""',
+      renderItems.size > 0 ? Array.from(renderItems).map((item) => `"${item}"`).join(' | ') : '""',
+      FunctionOptions,
+      (hasFunctionSignature ? `
+      export function getResourcePack(itemId: ItemId): string;
+      export function getResourcePack(itemId: RenderingItemId, options?: FunctionOptions): string;
+      ` : '').replace(/^\n/, '').replace(/[ \t]+$/, ''),
     );
   } else {
     return format(
       `
-  type Files = %s;
-  %s
-  export const resourcePack: Readonly<Record<Files, string>>;
-  export default resourcePack;
+      type ItemId = %s;
+      %s
+      %s
+      export const resourcePack: Readonly<Record<ItemId, string>>;
+      export default resourcePack;
       `
         .replace(/^\n/, '')
         .replace(/[ \t]+$/, ''),
       filteredImages.length > 0 ? filteredImages.map((img) => `"${img.path}"`).join(' | ') : '""',
-      filteredImages.length > 0 ? 'export function getResourcePack(path: Files): string;' : ''
+      FunctionOptions,
+      filteredImages.length > 0 ? 'export function getResourcePack(path: ItemId): string;' : ''
     );
   }
 }

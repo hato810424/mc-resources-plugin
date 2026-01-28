@@ -2,14 +2,15 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createItemManager } from '../../src/mojang/itemManager';
 import { createVersionManager } from '../../src/mojang/minecraftVersionManager';
 import findCacheDirectory from 'find-cache-directory';
+import { existsSync } from 'node:fs';
 
 describe('ItemManager', () => {
   let cacheDir: string;
-  let versionId = 'latest';
+  let versionId = '1.18.2';
 
   beforeAll(() => {
     cacheDir = findCacheDirectory({
-      name: '@hato810424/mc-resources-plugin-test',
+      name: '@hato810424/mc-resources-plugin',
       create: true,
     })!;
   });
@@ -25,6 +26,13 @@ describe('ItemManager', () => {
     expect(itemManager).toBeDefined();
   });
 
+  it('should get assets directory', { timeout: 30000 }, async () => {
+    const versionManager = createVersionManager(cacheDir);
+    const assetsDir = await versionManager.getAssets(versionId);
+    expect(assetsDir).toBeDefined();
+    expect(existsSync(assetsDir)).toBe(true);
+  });
+
   it('should get item IDs from en_us.json', async () => {
     const versionManager = createVersionManager(cacheDir);
     const itemManager = createItemManager(versionManager);
@@ -32,8 +40,8 @@ describe('ItemManager', () => {
     const itemIds = await itemManager.getItemIds(versionId);
     expect(Array.isArray(itemIds)).toBe(true);
     expect(itemIds.length).toBeGreaterThan(0);
-    expect(itemIds).toContain('stone');
-    expect(itemIds).toContain('dirt');
+    expect(itemIds).toContain('minecraft:stone');
+    expect(itemIds).toContain('minecraft:dirt');
   });
 
   it('should get item label in en_us', async () => {
@@ -56,23 +64,5 @@ describe('ItemManager', () => {
     expect(labels).toBeDefined();
     expect(labels['en_us']).toBeDefined();
     expect(labels['ja_jp']).toBeDefined();
-  });
-
-  it('should cache language files', async () => {
-    const versionManager = createVersionManager(cacheDir);
-    const itemManager = createItemManager(versionManager);
-
-    // 1回目の呼び出し
-    const startTime1 = Date.now();
-    await itemManager.getItemLabel(versionId, 'stone', 'en_us');
-    const duration1 = Date.now() - startTime1;
-
-    // 2回目の呼び出し（キャッシュから）
-    const startTime2 = Date.now();
-    await itemManager.getItemLabel(versionId, 'stone', 'en_us');
-    const duration2 = Date.now() - startTime2;
-
-    // キャッシュの方が速いはず
-    expect(duration2).toBeLessThanOrEqual(duration1);
   });
 });

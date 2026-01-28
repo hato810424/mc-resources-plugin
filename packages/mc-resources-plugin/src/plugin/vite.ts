@@ -108,6 +108,15 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
       if (configResolvedDone) return;
       configResolvedDone = true;
 
+      // コマンドモードを先に設定
+      if (config.command === 'build') {
+        isBuild = true;
+      }
+
+      if (config.isProduction && config.command === 'serve') {
+        isPreview = true;
+      }
+
       // グローバルインスタンスの初期化
       globalVersionManager = createVersionManager(cacheDir!);
       globalItemManager = createItemManager(globalVersionManager);
@@ -139,13 +148,6 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
       }
 
       outDir = config.build.outDir;
-      if (config.command === 'build') {
-        isBuild = true;
-      }
-
-      if (config.isProduction && config.command === 'serve') {
-        isPreview = true;
-      }
     },
 
     buildStart: async () => {
@@ -206,23 +208,19 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
           }
 
           // クエリパラメータから width, height, scale を取得
-          const width = Math.max(1, Math.min(2048, parseInt(url.searchParams.get('width') ?? '128', 10)));
-          const height = Math.max(1, Math.min(2048, parseInt(url.searchParams.get('height') ?? '128', 10)));
-          const scale = Math.max(0.1, Math.min(10, parseFloat(url.searchParams.get('scale') ?? '1')));
-          
-          // スケール値を適用
-          const scaledWidth = Math.round(width * scale);
-          const scaledHeight = Math.round(height * scale);
+          const width = parseInt(url.searchParams.get('width') ?? '128', 10);
+          const height = parseInt(url.searchParams.get('height') ?? String(width), 10);
+          const scaleParam = url.searchParams.get('scale');
+          const scale = scaleParam ? parseFloat(scaleParam) : undefined;
 
           // レスポンス送信関数
           const sendResponse = (imageBuffer: Buffer) => {
             res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=31536000');
             res.end(imageBuffer);
           };
 
           // キャッシュキーにサイズ情報を含める
-          const cacheKey = `${minecraftId}_${scaledWidth}x${scaledHeight}.png`;
+          const cacheKey = `${minecraftId}_${width}x${height}_${scale ? scale : ''}.png`;
           const cacheFile = join(cacheDir!, 'renders', cacheKey);
           
           // 1. ファイルキャッシュを確認
@@ -261,10 +259,14 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             
             // block/ プレフィックスをつけてレンダリング
             const modelPath = `block/${minecraftId}`;
-            await resourcePack.getRenderer().renderBlock(modelPath, cacheFile, {
-              width: scaledWidth,
-              height: scaledHeight,
-            });
+            const renderOptions: any = {
+              width,
+              height
+            };
+            if (scale !== undefined) {
+              renderOptions.scale = scale;
+            }
+            await resourcePack.getRenderer().renderBlock(modelPath, cacheFile, renderOptions);
 
             const imageBuffer = readFileSync(cacheFile);
             defaultLogger.info(`Rendered and cached: ${minecraftId}`);
