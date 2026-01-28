@@ -55,3 +55,9 @@ Snapshotは指定できません。
 リソースパックの自動生成時に除外するファイルのパターンを指定します。
 
 always exclude: `['node_modules', '.git', '*.d.ts']`
+
+### cacheDir (default: `node_modules/.cache/@hato810424/mc-resources-plugin`)
+キャッシュディレクトリを指定します。
+
+### startUpRenderCacheRefresh (default: false)
+起動時にレンダーキャッシュを更新するかどうかを指定します。
