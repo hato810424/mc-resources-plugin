@@ -19,14 +19,13 @@ async function readImagesInParallel(
   images: ImageInfo[],
   resourcePackPath: string,
   itemMap: Record<string, string>,
-  concurrency: number = 20
+  concurrency: number = 50
 ): Promise<(string | null)[]> {
   const results: (string | null)[] = new Array(images.length);
   
   for (let i = 0; i < images.length; i += concurrency) {
     const batch = images.slice(i, i + concurrency);
-    const batchPromises = batch.map(async (img, batchIndex) => {
-      const imageIndex = i + batchIndex;
+    const batchPromises = batch.map(async (img) => {
       const absolutePath = join(resolve(resourcePackPath), 'assets', 'minecraft', img.relativePath);
       const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
       const itemPath = itemMap[itemId];
@@ -131,23 +130,55 @@ export async function generateGetResourcePackCode({
 
   // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング（並列化）
   const itemMap: Record<string, string> = {};
+  const items3d = new Set<string>();
   
   if (itemManager) {
-    const itemMapPromises = filteredImages.map(async (img) => {
-      const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
-      if (itemId) {
-        const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
-        if (texturePath) {
-          return { itemId, texturePath };
+    // 3Dアイテムリストを取得（キャッシュがあれば使用、なければ空配列）
+    const items3dList = await itemManager.get3DItemsLazy(versionId);
+    items3dList.forEach(id => items3d.add(id));
+
+    // usedIds が指定されている場合のみテクスチャパスを並列取得
+    if (usedIds && usedIds.size > 0) {
+      const itemMapPromises = Array.from(usedIds).map(async (itemId) => {
+        try {
+          const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
+          if (texturePath) {
+            return { itemId, texturePath };
+          }
+        } catch (error) {
+          // テクスチャパス取得エラーは無視
+        }
+        return null;
+      });
+
+      const results = await Promise.all(itemMapPromises);
+      for (const result of results) {
+        if (result) {
+          itemMap[result.itemId] = result.texturePath;
         }
       }
-      return null;
-    });
+    } else if (!usedIds) {
+      // usedIdsがない場合は、フィルタード画像からのみマップを生成
+      const itemMapPromises = filteredImages.map(async (img) => {
+        const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
+        if (itemId) {
+          try {
+            const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
+            if (texturePath) {
+              return { itemId, texturePath };
+            }
+          } catch (error) {
+            // テクスチャパス取得エラーは無視
+          }
+        }
+        return null;
+      });
 
-    const results = await Promise.all(itemMapPromises);
-    for (const result of results) {
-      if (result) {
-        itemMap[result.itemId] = result.texturePath;
+      const results = await Promise.all(itemMapPromises);
+      for (const result of results) {
+        if (result) {
+          itemMap[result.itemId] = result.texturePath;
+        }
       }
     }
   }
@@ -163,10 +194,25 @@ export async function generateGetResourcePackCode({
     imageMap = generateImportImageMap(filteredImages, itemMap);
   }
 
+  // 3Dアイテムのマッピングを追加
+  let items3dMap = '';
+  if (items3d.size > 0) {
+    const items3dEntries = Array.from(items3d)
+      .map(itemId => `    "${itemId}": "/@hato810424:mc-resources-plugin/minecraft:${itemId.replace('minecraft:', '')}"`)
+      .join(',\n');
+    items3dMap = items3dEntries ? `,\n${items3dEntries}` : '';
+  }
+
+  // imageMapの末尾の,を削除（3Dアイテムがある場合のみ）
+  let finalImageMap = imageMap;
+  if (items3dMap && imageMap.trim().endsWith(',')) {
+    finalImageMap = imageMap.trimEnd().slice(0, -1);
+  }
+
   return `${imports}
 
 const resourcePack = {
-${imageMap}
+${finalImageMap}${items3dMap}
 };
 
 export function getResourcePack(path) {
@@ -198,25 +244,60 @@ export async function generateTypeDefinitions({
   // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング（並列化）
   if (itemManager && versionId) {
     let itemMap = new Set<string>();
+    let items3d = new Set<string>();
 
-    const itemMapPromises = filteredImages.map(async (img) => {
-      const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
+    // 3Dアイテムリストを取得（キャッシュがあれば使用、なければ空配列）
+    const items3dList = await itemManager.get3DItemsLazy(versionId);
+    items3dList.forEach(id => items3d.add(id));
 
-      if (itemId) {
-        const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
-        if (texturePath) {
-          return itemId;
+    // usedIds が指定されている場合のみテクスチャパスを並列取得
+    if (usedIds && usedIds.size > 0) {
+      const itemMapPromises = Array.from(usedIds).map(async (itemId) => {
+        try {
+          const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
+          if (texturePath) {
+            return itemId;
+          }
+        } catch (error) {
+          // テクスチャパス取得エラーは無視
+        }
+        return null;
+      });
+
+      const results = await Promise.all(itemMapPromises);
+      for (const itemId of results) {
+        if (itemId) {
+          itemMap.add(itemId);
         }
       }
-      return null;
-    });
+    } else if (!usedIds) {
+      // usedIdsがない場合は、フィルタード画像からのみマップを生成
+      const itemMapPromises = filteredImages.map(async (img) => {
+        const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
 
-    const results = await Promise.all(itemMapPromises);
-    for (const itemId of results) {
-      if (itemId) {
-        itemMap.add(itemId);
+        if (itemId) {
+          try {
+            const texturePath = await itemManager.getItemTexturePath(versionId, itemId);
+            if (texturePath) {
+              return itemId;
+            }
+          } catch (error) {
+            // テクスチャパス取得エラーは無視
+          }
+        }
+        return null;
+      });
+
+      const results = await Promise.all(itemMapPromises);
+      for (const itemId of results) {
+        if (itemId) {
+          itemMap.add(itemId);
+        }
       }
     }
+
+    // 3DアイテムをitemMapに追加
+    const allItems = new Set([...itemMap, ...items3d]);
 
     return format(
       `
@@ -227,8 +308,8 @@ export async function generateTypeDefinitions({
       `
         .replace(/^\n/, '')
         .replace(/[ \t]+$/, ''),
-      itemMap.size > 0 ? Array.from(itemMap).map((item) => `"${item}"`).join(' | ') : '""',
-      itemMap.size > 0 ? 'export function getResourcePack(path: Files): string;' : ''
+      allItems.size > 0 ? Array.from(allItems).map((item) => `"${item}"`).join(' | ') : '""',
+      allItems.size > 0 ? 'export function getResourcePack(path: Files): string;' : ''
     );
   } else {
     return format(

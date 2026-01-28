@@ -68,17 +68,19 @@ interface RenderOptions {
 export class MinecraftBlockRenderer {
   private modelsCache = new Map<string, MinecraftModel>();
   private texturesCache = new Map<string, Canvas>();
-  private pathResolver: MinecraftPathResolver;
+  private resourcePackPathResolver: MinecraftPathResolver;
+  private modelPathResolver: MinecraftPathResolver;
 
-  constructor(resourcePackPath: string) {
-    this.pathResolver = new MinecraftPathResolver(resourcePackPath);
+  constructor(resourcePackPath: string, modelPath?: string) {
+    this.resourcePackPathResolver = new MinecraftPathResolver(resourcePackPath);
+    this.modelPathResolver = new MinecraftPathResolver(modelPath ?? resourcePackPath);
   }
 
   /**
    * モデルファイルを読み込んで、parent継承を解決する
    */
   private async loadModel(modelPath: string): Promise<MinecraftModel> {
-    const fullPath = this.pathResolver.getModelFilePath(modelPath);
+    const fullPath = this.modelPathResolver.getModelFilePath(modelPath);
 
     if (this.modelsCache.has(fullPath)) {
       return this.modelsCache.get(fullPath)!;
@@ -120,7 +122,7 @@ export class MinecraftBlockRenderer {
       }
     }
     // パスを正規化（textures/プレフィックスは除去）
-    let texturePath = this.pathResolver.normalizeTexturePath(texture);
+    let texturePath = this.resourcePackPathResolver.normalizeTexturePath(texture);
     texturePath = texturePath.replace(/^textures\//, '');
     return texturePath;
   }
@@ -136,7 +138,7 @@ export class MinecraftBlockRenderer {
       return this.texturesCache.get(cacheKey)!;
     }
 
-    const fullPath = this.pathResolver.getTextureFilePath(texturePath);
+    const fullPath = this.resourcePackPathResolver.getTextureFilePath(texturePath);
 
     try {
       const image = await loadImage(fullPath);
@@ -507,7 +509,7 @@ export class MinecraftBlockRenderer {
    * modelsディレクトリ内のすべてのモデルをレンダリング
    */
   async renderAllModels(outputDir: string, options: RenderOptions): Promise<void> {
-    const modelsDir = this.pathResolver.getBlockModelsDir();
+    const modelsDir = this.modelPathResolver.getBlockModelsDir();
     const files = await readdir(modelsDir);
 
     for (const file of files) {

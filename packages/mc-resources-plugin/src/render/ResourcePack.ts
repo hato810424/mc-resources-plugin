@@ -23,7 +23,7 @@ class MinecraftResourcePack {
 
   constructor(resourcePackPath: string, modelPath?: string) {
     this.builder = new ResourcePackBuilder(resourcePackPath);
-    this.renderer = new MinecraftBlockRenderer(modelPath ?? resourcePackPath);
+    this.renderer = new MinecraftBlockRenderer(resourcePackPath, modelPath);
   }
 
   /**

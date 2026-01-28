@@ -45,49 +45,98 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
   } = validatedOptions;
 
   const renderingTasks = new Map<string, Promise<Buffer>>();
+  let fileGenerationPromise: Promise<void> | null = null;
+  
   /**
-   * ファイル生成関数
+   * ファイル生成関数（遅延生成対応）
    */
   const generateFiles = async ({
     usedIds = undefined,
     isBase64 = false,
+    ensureItems3d = false,
   }: {
     usedIds?: Set<string>;
     isBase64?: boolean;
+    ensureItems3d?: boolean;
   } = {}): Promise<void> => {
     if (isGenerated) return; // 既に生成済みの場合スキップ
 
-    const images = getAllImages(resourcePackPath);
-    
-    const jsCode = await generateGetResourcePackCode({ images, resourcePackPath, isBase64, usedIds, itemManager: globalItemManager, versionId: mcVersion });
-    const tsCode = await generateTypeDefinitions({ images, usedIds, itemManager: globalItemManager, versionId: mcVersion });
+    // 既にファイル生成中の場合は、その完了を待つ
+    if (fileGenerationPromise) {
+      return fileGenerationPromise;
+    }
 
-    // 出力ディレクトリを初期化
-    initializeOutputDirectory(outputPath, emptyOutDir);
+    fileGenerationPromise = (async () => {
+      // dev モード時かつ3Dアイテムを確実に必要な場合、先に取得
+      if (ensureItems3d && !isBuild && globalItemManager) {
+        try {
+          await globalItemManager.get3DItems(mcVersion);
+        } catch (err) {
+          defaultLogger.warn(`Failed to fetch 3D items: ${err}`);
+        }
+      }
 
-    // ファイルを書き込む
-    writeFiles(outputPath, jsCode, tsCode);
+      const images = getAllImages(resourcePackPath);
+      
+      const jsCode = await generateGetResourcePackCode({ images, resourcePackPath, isBase64, usedIds, itemManager: globalItemManager, versionId: mcVersion });
+      const tsCode = await generateTypeDefinitions({ images, usedIds, itemManager: globalItemManager, versionId: mcVersion });
 
-    const displayCount = usedIds ? usedIds.size : images.length;
-    defaultLogger.info(`Generated with ${displayCount} images (found ${images.length} total)`);
+      // 出力ディレクトリを初期化
+      initializeOutputDirectory(outputPath, emptyOutDir);
 
-    isGenerated = true;
+      // ファイルを書き込む
+      writeFiles(outputPath, jsCode, tsCode);
+
+      const displayCount = usedIds ? usedIds.size : images.length;
+      defaultLogger.info(`Generated with ${displayCount} images (found ${images.length} total)`);
+
+      isGenerated = true;
+    })();
+
+    return fileGenerationPromise;
   };
   
   let isBuild = false;
   let isPreview = false;
   let resourcePack: MinecraftResourcePack | null = null;
   let outDir: string;
+  let configResolvedDone = false;
   return {
     name: '@hato810424/mc-resources-plugin',
 
-    configResolved: (config) => {
+    configResolved: async (config) => {
+      if (configResolvedDone) return;
+      configResolvedDone = true;
+
       // グローバルインスタンスの初期化
       globalVersionManager = createVersionManager(cacheDir!);
       globalItemManager = createItemManager(globalVersionManager);
 
-      // アセットをMojangから取得
-      globalVersionManager.getAssets(mcVersion);
+      if (!isBuild && !isPreview) {
+        // dev モード時：軽量な初期化のみ
+        // 重い処理（アセット取得、3Dアイテム検出）はバックグラウンドで遅延実行
+        // 起動速度を最優先
+        defaultLogger.info('Dev mode: Heavy initialization deferred to background');
+        
+        // アセット取得をバックグラウンドで非同期実行
+        setTimeout(() => {
+          globalVersionManager!.getAssets(mcVersion).catch(err => {
+            defaultLogger.warn(`Failed to pre-fetch assets: ${err}`);
+          });
+        }, 500);
+
+        // 3D アイテム取得をさらに遅延実行
+        setTimeout(() => {
+          globalItemManager!.get3DItems(mcVersion).catch(err => {
+            defaultLogger.warn(`Failed to preload 3D items: ${err}`);
+          });
+        }, 2000);
+      } else {
+        // build / preview モード時：即座にアセット取得
+        globalVersionManager.getAssets(mcVersion).catch(err => {
+          defaultLogger.warn(`Failed to pre-fetch assets: ${err}`);
+        });
+      }
 
       outDir = config.build.outDir;
       if (config.command === 'build') {
@@ -110,10 +159,11 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
       }
 
       if (!isBuild) {
-        // dev モード
-        await generateFiles({ isBase64: true });
+        // dev モード: ファイル生成を遅延化（初回アクセス時に実行）
+        // buildStart では何もしない
+        defaultLogger.info('Dev mode: File generation deferred to first access');
       } else {
-        // build モード
+        // build モード: 即座にファイル生成
         // ビルド開始時に、使用されているMinecraft IDをスキャン
         const root = process.cwd();
         const detectedIds = scanSourceCode(root, { include, exclude, outputPath, viteOutDir: outDir });
@@ -123,21 +173,46 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
 
     // レンダリングが必要なアイテム
     configureServer: (server) => {
+      // dev モード時：初回アクセス時にファイル生成をバックグラウンドで開始（ノンブロッキング）
+      let fileGenerationStarted = false;
+      
       server.middlewares.use(async (req, res, next) => {
+        // dev モード時かつまだ生成していない場合、バックグラウンドで生成開始
+        if (!isBuild && !isGenerated && !fileGenerationStarted) {
+          fileGenerationStarted = true;
+          defaultLogger.info('Starting file generation in background...');
+          
+          // ファイル生成をバックグラウンドで実行（await しない）
+          generateFiles({ isBase64: true, ensureItems3d: true }).catch(err => {
+            defaultLogger.warn(`Failed to generate files: ${err}`);
+          });
+        }
+
+        // ミドルウェアは即座に次に進む（ブロッキングしない）
         if (!req.url?.startsWith('/@hato810424:mc-resources-plugin/minecraft:')) {
           next();
           return;
         }
 
         try {
-          // URL から ID を抽出 (e.g., /@hato810424:mc-resources-plugin/minecraft:stone => stone)
-          const minecraftId = req.url.replace('/@hato810424:mc-resources-plugin/minecraft:', '').split('?')[0];
+          // URL パースしてクエリパラメータを取得
+          const url = new URL(req.url!, `http://${req.headers.host}`);
+          const minecraftId = url.pathname.replace('/@hato810424:mc-resources-plugin/minecraft:', '');
           
           if (!minecraftId) {
             res.statusCode = 400;
             res.end('Invalid minecraft ID');
             return;
           }
+
+          // クエリパラメータから width, height, scale を取得
+          const width = Math.max(1, Math.min(2048, parseInt(url.searchParams.get('width') ?? '128', 10)));
+          const height = Math.max(1, Math.min(2048, parseInt(url.searchParams.get('height') ?? '128', 10)));
+          const scale = Math.max(0.1, Math.min(10, parseFloat(url.searchParams.get('scale') ?? '1')));
+          
+          // スケール値を適用
+          const scaledWidth = Math.round(width * scale);
+          const scaledHeight = Math.round(height * scale);
 
           // レスポンス送信関数
           const sendResponse = (imageBuffer: Buffer) => {
@@ -146,7 +221,9 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             res.end(imageBuffer);
           };
 
-          const cacheFile = join(cacheDir!, 'renders', `${minecraftId}.png`);
+          // キャッシュキーにサイズ情報を含める
+          const cacheKey = `${minecraftId}_${scaledWidth}x${scaledHeight}.png`;
+          const cacheFile = join(cacheDir!, 'renders', cacheKey);
           
           // 1. ファイルキャッシュを確認
           if (existsSync(cacheFile)) {
@@ -168,6 +245,12 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
           const renderPromise = (async () => {
             defaultLogger.info(`Rendering ${minecraftId}...`);
             
+            // ファイル生成がまだ進行中なら待つ
+            if (fileGenerationPromise) {
+              defaultLogger.info(`Waiting for file generation to complete...`);
+              await fileGenerationPromise;
+            }
+            
             // アセット取得が完了するまで待つ
             const assetsDirPath = await globalVersionManager!.getAssets(mcVersion);
             
@@ -179,8 +262,8 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
             // block/ プレフィックスをつけてレンダリング
             const modelPath = `block/${minecraftId}`;
             await resourcePack.getRenderer().renderBlock(modelPath, cacheFile, {
-              width: 128,
-              height: 128,
+              width: scaledWidth,
+              height: scaledHeight,
             });
 
             const imageBuffer = readFileSync(cacheFile);

@@ -10,6 +10,8 @@ export interface ItemData {
 
 class ItemManager {
   private versionManager: MinecraftVersionManager;
+  private items3dCache: Map<string, string[]> = new Map();
+  private itemIdsCache: Map<string, string[]> = new Map();
 
   constructor(versionManager: MinecraftVersionManager) {
     this.versionManager = versionManager;
@@ -19,6 +21,11 @@ class ItemManager {
    * en_us.json からアイテムID一覧を取得
    */
   async getItemIds(versionId: string): Promise<string[]> {
+    // キャッシュをチェック
+    if (this.itemIdsCache.has(versionId)) {
+      return this.itemIdsCache.get(versionId)!;
+    }
+
     try {
       const langData = await this.getLangFile(versionId, 'en_us');
       const itemIds: string[] = [];
@@ -39,6 +46,9 @@ class ItemManager {
       }
 
       defaultLogger.info(`Extracted ${itemIds.length} item IDs from ${versionId}`);
+      
+      // キャッシュに保存
+      this.itemIdsCache.set(versionId, itemIds);
       return itemIds;
     } catch (error) {
       defaultLogger.error(`Failed to get item IDs for ${versionId}: ${error}`);
@@ -68,13 +78,13 @@ class ItemManager {
       if (model.textures && model.textures.layer0) {
         let textureId = model.textures.layer0;
         // 'minecraft:item/diamond' -> 'textures/item/diamond.png'
-        const [texNamespace, texPath] = textureId.includes(':') ? textureId.split(':') : ['minecraft', textureId];
+        const [, texPath] = textureId.includes(':') ? textureId.split(':') : ['minecraft', textureId];
         return join(assetsDir, 'assets', 'minecraft', 'textures', `${texPath}.png`);
       }
 
       // layer0がない場合、parentを辿る
       if (model.parent) {
-        const [parentNamespace, parentPath] = model.parent.split(':');
+        const [, parentPath] = model.parent.split(':');
         // 親が block/系 の場合は models/block/ を見に行く必要がある
         currentModelPath = join(assetsDir, 'assets', 'minecraft', 'models', 'block', `${parentPath}.json`);
       } else {
@@ -148,6 +158,105 @@ class ItemManager {
     }
 
     return result;
+  }
+
+  /**
+   * モデルの表示タイプを判定 ('2d' または '3d')
+   */
+  private getModelDisplayType(modelId: string, assetsDir: string): '2d' | '3d' {
+    const BASE_PATH = join(assetsDir, 'assets', 'minecraft', 'models');
+    
+    let [, rawPath] = modelId.includes(':') ? modelId.split(':') : ['minecraft', modelId];
+    let modelPath = rawPath.startsWith('item/') || rawPath.startsWith('block/') 
+                ? rawPath 
+                : `item/${rawPath}`;
+
+    let depth = 0;
+    let currentPath = join(BASE_PATH, `${modelPath}.json`);
+
+    while (existsSync(currentPath) && depth < 10) {
+      try {
+        const json = JSON.parse(readFileSync(currentPath, 'utf8'));
+        const parent = json.parent;
+
+        if (!parent) return '3d';
+
+        if (parent === 'minecraft:item/generated' || parent === 'item/generated' ||
+            parent === 'minecraft:item/handheld' || parent === 'item/handheld') {
+          return '2d';
+        }
+
+        if (parent.startsWith('minecraft:block/') || parent.startsWith('block/')) {
+          return '3d';
+        }
+
+        [, modelPath] = parent.includes(':') ? parent.split(':') : ['minecraft', parent];
+        currentPath = join(BASE_PATH, `${modelPath}.json`);
+        depth++;
+      } catch {
+        return '3d';
+      }
+    }
+
+    return '3d';
+  }
+
+  /**
+   * 3Dアイテムのリストを取得
+   */
+  async get3DItems(versionId: string): Promise<string[]> {
+    // キャッシュをチェック
+    if (this.items3dCache.has(versionId)) {
+      return this.items3dCache.get(versionId)!;
+    }
+
+    try {
+      const itemIds = await this.getItemIds(versionId);
+      const assetsDir = await this.versionManager.getAssets(versionId);
+      const items3d: string[] = [];
+
+      // 並列処理で高速化（最大30個同時実行）
+      const batchSize = 30;
+      for (let i = 0; i < itemIds.length; i += batchSize) {
+        const batch = itemIds.slice(i, i + batchSize);
+        const batchPromises = batch.map(itemId => 
+          Promise.resolve().then(() => ({
+            itemId,
+            type: this.getModelDisplayType(itemId, assetsDir)
+          }))
+        );
+        
+        const batchResults = await Promise.all(batchPromises);
+        for (const result of batchResults) {
+          if (result.type === '3d') {
+            items3d.push(result.itemId);
+          }
+        }
+      }
+
+      defaultLogger.info(`Found ${items3d.length} 3D items out of ${itemIds.length} total items`);
+      
+      // キャッシュに保存
+      this.items3dCache.set(versionId, items3d);
+      return items3d;
+    } catch (error) {
+      defaultLogger.error(`Failed to get 3D items for ${versionId}: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 3Dアイテムのリストを段階的に取得（dev用：キャッシュからの読み込みのみ）
+   * ファイルシステム操作を最小限に抑える
+   */
+  async get3DItemsLazy(versionId: string): Promise<string[]> {
+    // キャッシュをチェック
+    if (this.items3dCache.has(versionId)) {
+      return this.items3dCache.get(versionId)!;
+    }
+
+    // キャッシュがない場合は空配列を返す（バックグラウンド処理で後から取得）
+    return [];
   }
 }
 

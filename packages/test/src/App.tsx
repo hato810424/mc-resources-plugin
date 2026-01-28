@@ -26,7 +26,9 @@ function App() {
           Edit <code>src/App.tsx</code> and save to test HMR
         </p>
       </div>
+      <img src={getResourcePack("minecraft:dispenser")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
       <img src={getResourcePack("minecraft:cake")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
+      <img src={getResourcePack("minecraft:anvil")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
     </>
   )
 }
