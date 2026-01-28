@@ -17,7 +17,7 @@ export interface RenderBlockOptions {
   dryRun?: boolean; // true の場合はレンダリングをスキップ
 }
 
-export class MinecraftResourcePack {
+class MinecraftResourcePack {
   private builder: ResourcePackBuilder;
   private renderer: MinecraftBlockRenderer;
 
@@ -154,5 +154,9 @@ export class MinecraftResourcePack {
   }
 }
 
-export type { ResolvedModel, ResolvedItem };
+export type { MinecraftResourcePack, ResolvedModel, ResolvedItem };
 export { ResourcePackBuilder, MinecraftBlockRenderer };
+
+export function createResourcePack(resourcePackPath: string): MinecraftResourcePack {
+  return new MinecraftResourcePack(resourcePackPath);
+}

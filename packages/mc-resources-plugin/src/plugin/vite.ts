@@ -8,7 +8,7 @@ import findCacheDirectory from "find-cache-directory";
 import { existsSync, rmSync } from 'fs';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { MinecraftResourcePack } from '../render/ResourcePack';
+import { createResourcePack, type MinecraftResourcePack } from '../render/ResourcePack';
 
 const mcResourcesPlugin = (options: PluginOptions) => {
   const {
@@ -143,7 +143,7 @@ const mcResourcesPlugin = (options: PluginOptions) => {
             
             // ResourcePack インスタンスを再利用
             if (!resourcePack) {
-              resourcePack = new MinecraftResourcePack(resourcePackPath);
+              resourcePack = createResourcePack(resourcePackPath);
             }
             
             // block/ プレフィックスをつけてレンダリング

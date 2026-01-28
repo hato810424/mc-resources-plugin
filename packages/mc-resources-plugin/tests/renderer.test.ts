@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { MinecraftResourcePack } from '../src/render/ResourcePack';
+import { createResourcePack, type MinecraftResourcePack } from '../src/render/ResourcePack';
 import { join, resolve } from 'path';
 import { accessSync } from 'fs';
 
@@ -11,7 +11,7 @@ describe('MinecraftResourcePack', () => {
   const outputDir = resolve(__dirname, './dist/renders');
 
   beforeAll(() => {
-    resourcePack = new MinecraftResourcePack(resourcePackPath);
+    resourcePack = createResourcePack(resourcePackPath);
   });
 
   it('すべてのブロックモデルを取得できる', async () => {
