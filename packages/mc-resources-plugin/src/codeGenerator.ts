@@ -87,24 +87,6 @@ function generateImportStatements(images: ImageInfo[], resourcePackPath: string,
 }
 
 /**
- * import形式の画像マップを生成
- */
-function generateImportImageMap(images: ImageInfo[], itemMap: Record<string, string>): string {
-  return images
-    .map((img, index) => {
-      const itemId = `minecraft:${img.path.split('/').pop()?.replace(/\.[^.]+$/, '')}`;
-      const itemPath = itemMap[itemId];
-      if (itemPath) {
-        return `    "${itemId}": _i${index},`;
-      } else {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-/**
  * 画像情報から getMcResources 関数を生成
  */
 export async function generateGetResourcePackCode({
