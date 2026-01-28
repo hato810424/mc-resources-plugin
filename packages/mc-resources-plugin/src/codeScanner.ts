@@ -1,6 +1,7 @@
 import { readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { matchesPattern } from './patternMatcher';
+import { CONFIG } from './env';
 
 export type RenderingOption = {
   itemId: string;
@@ -171,8 +172,8 @@ function extractResourceIds(
           renderingOptions.set(uniqueKey, {
             itemId,
             optionHash: 'default',
-            width: 128,
-            height: 128,
+            width: CONFIG.WIDTH,
+            height: CONFIG.HEIGHT,
           });
         }
         processedItemsForNoOption.add(itemId);

@@ -337,7 +337,7 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
           }
 
           // クエリパラメータから width, height, scale を取得
-          const width = parseInt(url.searchParams.get('width') ?? '128', 10);
+          const width = parseInt(url.searchParams.get('width') ?? String(CONFIG.WIDTH), 10);
           const height = parseInt(url.searchParams.get('height') ?? String(width), 10);
           const scaleParam = url.searchParams.get('scale');
           const scale = scaleParam ? parseFloat(scaleParam) : undefined;
@@ -419,7 +419,7 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
           }
           const url = new URL(req.url || '', `http://${req.headers.host}`);
           const extractedId = url.pathname.replace('/@hato810424:mc-resources-plugin/minecraft:', '');
-          const width = parseInt(url.searchParams.get('width') ?? '128', 10);
+          const width = parseInt(url.searchParams.get('width') ?? String(CONFIG.WIDTH), 10);
           const height = parseInt(url.searchParams.get('height') ?? String(width), 10);
           const scaleParam = url.searchParams.get('scale');
           const scale = scaleParam ? parseFloat(scaleParam) : undefined;
