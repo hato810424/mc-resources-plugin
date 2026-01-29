@@ -83,53 +83,51 @@ class McResourcesPlugin implements WebpackPluginInstance {
       callback();
     });
 
-    if (compiler.options.devServer) {
-      // devServerがない場合は初期化
-      if (!compiler.options.devServer) {
-        compiler.options.devServer = {};
-      }
-      
-      const devServerConfig: DevServerConfiguration = compiler.options.devServer || {};
-      // setupMiddlewares の引数と戻り値に型を適用
-      devServerConfig.setupMiddlewares = (
-        middlewares: Middleware[],
-        devServer: Server
-      ): Middleware[] => {
-        
-        if (!devServer.app) {
-          throw new Error('webpack-dev-server app is not defined');
-        }
-
-        // 3. Expressのメソッド(get, postなど)が型安全に利用可能
-        devServer.app.get('/@hato810424:mc-resources-plugin/*', (req, res, next) => {
-          this.core.devServerMiddleware({
-            next,
-            req: {
-              url: req.url,
-              headers: req.headers,
-            },
-            res: {
-              setStatus: (statusCode) => {
-                res.statusCode = statusCode;
-              },
-              setHeader: (name, value) => {
-                res.setHeader(name, value);
-              },
-              send: (body) => {
-                res.end(body);
-              },
-            },
-            isBuild: this.isBuild,
-            isGenerated: this.isGenerated,
-          });
-        });
-
-        return middlewares;
-      };
-
-      // 最終的に compiler.options に戻す
-      compiler.options.devServer = devServerConfig;
+    // devServerがない場合は初期化
+    if (!compiler.options.devServer) {
+      compiler.options.devServer = {};
     }
+    
+    const devServerConfig: DevServerConfiguration = compiler.options.devServer;
+    // setupMiddlewares の引数と戻り値に型を適用
+    devServerConfig.setupMiddlewares = (
+      middlewares: Middleware[],
+      devServer: Server
+    ): Middleware[] => {
+      
+      if (!devServer.app) {
+        throw new Error('webpack-dev-server app is not defined');
+      }
+
+      // 3. Expressのメソッド(get, postなど)が型安全に利用可能
+      devServer.app.get('/@hato810424:mc-resources-plugin/*', (req, res, next) => {
+        this.core.devServerMiddleware({
+          next,
+          req: {
+            url: req.url,
+            headers: req.headers,
+          },
+          res: {
+            setStatus: (statusCode) => {
+              res.statusCode = statusCode;
+            },
+            setHeader: (name, value) => {
+              res.setHeader(name, value);
+            },
+            send: (body) => {
+              res.end(body);
+            },
+          },
+          isBuild: this.isBuild,
+          isGenerated: this.isGenerated,
+        });
+      });
+
+      return middlewares;
+    };
+
+    // 最終的に compiler.options に戻す
+    compiler.options.devServer = devServerConfig;
   }
 }
 
