@@ -22,6 +22,11 @@
       "import": "./dist/webpack.mjs",
       "require": "./dist/webpack.cjs",
       "default": "./dist/webpack.cjs"
+    },
+    "./docusaurus": {
+      "types": "./dist/docusaurus.d.ts",
+      "import": "./dist/docusaurus.mjs",
+      "default": "./dist/docusaurus.mjs"
     }
   },
   "sideEffects": false,
@@ -36,6 +41,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "devDependencies": {
+    "@docusaurus/types": "^3.9.2",
     "@types/node": "^25.0.10",
     "tsdown": "^0.18.4",
     "tsx": "^4.21.0",

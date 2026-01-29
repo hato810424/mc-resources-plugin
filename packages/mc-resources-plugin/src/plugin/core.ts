@@ -301,6 +301,7 @@ export class McResourcesCore {
     const renderingOptions = scanResult.renderingOptions;
     
     // ビルド時に3Dアイテムをレンダリング（実際のURLで記録）
+    defaultLogger.debug(`Rendering options: ${JSON.stringify(Array.from(renderingOptions?.entries() ?? []))}`);
     const items3dUrlMap = await this.renderItems3dForBuildWithEmit(detectedIds, renderingOptions);
 
     // ファイル生成（実際のレンダリングURLを渡す）

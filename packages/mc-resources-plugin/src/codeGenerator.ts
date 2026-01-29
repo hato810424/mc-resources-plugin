@@ -208,9 +208,26 @@ export async function generateGetResourcePackCode({
     // まずインポート文を生成し、各itemIdとオプションハッシュをマッピング
     if (items3dUrlMap) {
       for (const [key, renderedPath] of items3dUrlMap) {
-        const parts = key.split('_');
-        const itemId = parts[0]; // minecraft:xxx
-        const optionHash = parts.slice(1).join('_') || 'default'; // オプションハッシュ、またはデフォルト
+        // key format: "minecraft:itemId" or "minecraft:itemId_optionHash"
+        // We need to find where the optionHash starts
+        const lastUnderscore = key.lastIndexOf('_');
+        let itemId: string;
+        let optionHash: string;
+        
+        if (lastUnderscore > 0) {
+          // Check if the part after underscore looks like an optionHash (contains no colons)
+          const possibleHash = key.substring(lastUnderscore + 1);
+          if (!possibleHash.includes(':')) {
+            itemId = key.substring(0, lastUnderscore);
+            optionHash = possibleHash;
+          } else {
+            itemId = key;
+            optionHash = 'default';
+          }
+        } else {
+          itemId = key;
+          optionHash = 'default';
+        }
         
         const importVarName = `_r3d${importIndex}`;
         items3dImports += `import ${importVarName} from "${renderedPath}";\n`;
