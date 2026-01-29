@@ -64,7 +64,7 @@ class McResourcesPlugin implements WebpackPluginInstance {
     // output ディレクトリを取得
     this.outDir = compiler.options.output.path;
 
-    compiler.hooks.afterEmit.tap('McResourcesPlugin', async (compilation) => {
+    compiler.hooks.emit.tap('McResourcesPlugin', async (compilation) => {
       if (!this.isBuild && !this.isPreview) {
         this.core.devServerStart()
       }
@@ -85,8 +85,6 @@ class McResourcesPlugin implements WebpackPluginInstance {
 
     if (compiler.options.devServer) {
       const devServerConfig: DevServerConfiguration = compiler.options.devServer || {};
-      const originalSetup = devServerConfig.setupMiddlewares;
-
       // 2. setupMiddlewares の引数と戻り値に型を適用
       devServerConfig.setupMiddlewares = (
         middlewares: Middleware[],
@@ -120,11 +118,6 @@ class McResourcesPlugin implements WebpackPluginInstance {
             isGenerated: this.isGenerated,
           });
         });
-
-        // 4. 既存の setupMiddlewares がある場合はそれを実行
-        if (originalSetup) {
-          return originalSetup(middlewares, devServer);
-        }
 
         return middlewares;
       };
