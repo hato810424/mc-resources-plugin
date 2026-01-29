@@ -1,28 +1,8 @@
 import type { PluginOptions } from '../types';
 import type { PluginOption } from 'vite';
-import type { MinecraftVersionManager } from '../mojang/minecraftVersionManager';
-import type { ItemManager } from '../mojang/itemManager';
 import { rmSync } from 'fs';
 import { join } from 'path';
 import { McResourcesCore } from './core';
-
-// グローバルインスタンス
-let globalVersionManager: MinecraftVersionManager | undefined = undefined;
-let globalItemManager: ItemManager | undefined = undefined;
-
-export function getVersionManager(): MinecraftVersionManager {
-  if (!globalVersionManager) {
-    throw new Error('VersionManager is not initialized');
-  }
-  return globalVersionManager;
-}
-
-export function getItemManager(): ItemManager {
-  if (!globalItemManager) {
-    throw new Error('ItemManager is not initialized');
-  }
-  return globalItemManager;
-}
 
 const mcResourcesPlugin = async (options: PluginOptions) => {
   let isGenerated = false;
