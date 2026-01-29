@@ -84,8 +84,13 @@ class McResourcesPlugin implements WebpackPluginInstance {
     });
 
     if (compiler.options.devServer) {
+      // devServerがない場合は初期化
+      if (!compiler.options.devServer) {
+        compiler.options.devServer = {};
+      }
+      
       const devServerConfig: DevServerConfiguration = compiler.options.devServer || {};
-      // 2. setupMiddlewares の引数と戻り値に型を適用
+      // setupMiddlewares の引数と戻り値に型を適用
       devServerConfig.setupMiddlewares = (
         middlewares: Middleware[],
         devServer: Server
