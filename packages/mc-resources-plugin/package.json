@@ -1,6 +1,6 @@
 {
   "name": "@hato810424/mc-resources-plugin",
-  "version": "0.0.0-beta.4",
+  "version": "0.0.0-beta.5",
   "type": "module",
   "author": "hato810424",
   "repository": {
@@ -16,6 +16,12 @@
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.mjs",
       "default": "./dist/vite.mjs"
+    },
+    "./webpack": {
+      "types": "./dist/webpack.d.cts",
+      "import": "./dist/webpack.mjs",
+      "require": "./dist/webpack.cjs",
+      "default": "./dist/webpack.cjs"
     }
   },
   "sideEffects": false,
@@ -35,7 +41,9 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "webpack": "^5.104.1",
+    "webpack-dev-server": "^5.2.3"
   },
   "dependencies": {
     "canvas": "^3.2.1",

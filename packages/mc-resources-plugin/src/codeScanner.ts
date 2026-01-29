@@ -25,14 +25,14 @@ export function scanSourceCode(
     include?: string[];
     exclude?: string[];
     outputPath?: string;
-    viteOutDir?: string;
+    distDir?: string;
   } = {}
 ): ScanResult {
   const {
     include = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
     exclude = [],
     outputPath = './mcpacks',
-    viteOutDir = './dist',
+    distDir = './dist',
   } = options;
 
   const usedIds = new Set<string>();
@@ -43,8 +43,8 @@ export function scanSourceCode(
   const alwaysExclude = ['node_modules', '.git', '*.d.ts'];
   // 出力パスも除外する
   const normalizedOutputPath = outputPath.replace(/^\.\//, '').replace(/\/$/, '');
-  const normalizedViteOutDir = viteOutDir.replace(/^\.\//, '').replace(/\/$/, '');
-  const finalExclude = [...alwaysExclude, normalizedOutputPath, normalizedViteOutDir, ...exclude];
+  const normalizedDistDir = distDir.replace(/^\.\//, '').replace(/\/$/, '');
+  const finalExclude = [...alwaysExclude, normalizedOutputPath, normalizedDistDir, ...exclude];
 
   const scanDir = (dir: string, relativeBase: string = '') => {
     try {
@@ -98,27 +98,16 @@ function extractResourceIds(
 ): void {
   try {
     const content = readFileSync(filePath, 'utf-8');
-    // minecraft:item/diamond のようなID参照を検出（文字列リテラル内のみ）
-    // パターン1: "minecraft:xxx"
-    const doubleQuoteRegex = /"minecraft:([a-z0-9/_\-\.]+)"/gi;
-    let match;
-    while ((match = doubleQuoteRegex.exec(content)) !== null) {
-      const id = `minecraft:${match[1]}`;
-      usedIds.add(id);
-    }
     
-    // パターン2: 'minecraft:xxx'
-    const singleQuoteRegex = /'minecraft:([a-z0-9/_\-\.]+)'/gi;
-    while ((match = singleQuoteRegex.exec(content)) !== null) {
-      const id = `minecraft:${match[1]}`;
-      usedIds.add(id);
-    }
-
     // getResourcePack()のオプション抽出
     // パターン1: getResourcePack("minecraft:xxx", { width: 256, height: 256, scale: 2 })
     const resourcePackRegex = /getResourcePack\s*\(\s*["']minecraft:([a-z0-9/_\-\.]+)["']\s*,\s*\{\s*([^}]*)\s*\}\s*\)/gi;
+    let match;
+    const processedItems = new Set<string>();
+    
     while ((match = resourcePackRegex.exec(content)) !== null) {
       const itemId = `minecraft:${match[1]}`;
+      usedIds.add(itemId);
       const optionsStr = match[2];
       let width: number | undefined;
       let height: number | undefined;
@@ -155,29 +144,30 @@ function extractResourceIds(
           });
         }
       }
+      
+      processedItems.add(itemId);
     }
 
     // パターン2: getResourcePack("minecraft:xxx") - オプション無し（パターン1にマッチしないもの）
     // lookahead を使ってパターン1と被らないようにする
     const resourcePackNoOptionRegex = /getResourcePack\s*\(\s*["']minecraft:([a-z0-9/_\-\.]+)["']\s*(?!\s*,\s*\{)(?=\s*\))/gi;
-    const processedItemsForNoOption = new Set<string>();
     while ((match = resourcePackNoOptionRegex.exec(content)) !== null) {
       const itemId = `minecraft:${match[1]}`;
+      usedIds.add(itemId);
       
-      // オプション無しで初めて検出される場合のみ追加
+      // デフォルト版のレンダリングオプションを追加
       // （オプション付きで既に検出されていてもデフォルト版は別に追加）
-      if (!processedItemsForNoOption.has(itemId)) {
-        const uniqueKey = `${itemId}:default`;
-        if (!renderingOptions.has(uniqueKey)) {
-          renderingOptions.set(uniqueKey, {
-            itemId,
-            optionHash: 'default',
-            width: CONFIG.WIDTH,
-            height: CONFIG.HEIGHT,
-          });
-        }
-        processedItemsForNoOption.add(itemId);
+      const uniqueKey = `${itemId}:default`;
+      if (!renderingOptions.has(uniqueKey)) {
+        renderingOptions.set(uniqueKey, {
+          itemId,
+          optionHash: 'default',
+          width: CONFIG.WIDTH,
+          height: CONFIG.HEIGHT,
+        });
       }
+      
+      processedItems.add(itemId);
     }
   } catch {
     // ファイル読み込みエラーを無視

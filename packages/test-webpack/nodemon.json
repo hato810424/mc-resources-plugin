@@ -1,0 +1,9 @@
+{
+  "watch": [
+    "../mc-resources-plugin/dist",
+    "../mc-resources-plugin/src/**/*.json",
+    "./webpack.config.js"
+  ],
+  "delay": "3000",
+  "exec": "webpack serve --mode development"
+}

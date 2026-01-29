@@ -61,8 +61,8 @@ export function initializeOutputDirectory(outputPath: string, emptyOutDir: boole
  * ファイルをディスクに書き込む
  */
 export function writeFiles(outputPath: string, jsCode: string, tsCode: string): void {
-  // JSファイルを生成
-  const jsFilePath = join(outputPath, 'resourcepack.js');
+  // JSファイルを生成（ES Module形式で .mjs として出力）
+  const jsFilePath = join(outputPath, 'resourcepack.mjs');
   writeFileSync(jsFilePath, jsCode, 'utf-8');
 
   // 型定義ファイルを生成
