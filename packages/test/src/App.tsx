@@ -30,6 +30,8 @@ function App() {
       <img src={getResourcePack("minecraft:dispenser", { width: 32 })} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
       <img src={getResourcePack("minecraft:golden_apple")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
       <img src={getResourcePack("minecraft:anvil")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
+      <img src={getResourcePack("minecraft:grass_block")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
+      <img src={getResourcePack("minecraft:cactus")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
     </>
   )
 }

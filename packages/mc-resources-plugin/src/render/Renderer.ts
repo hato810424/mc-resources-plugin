@@ -28,6 +28,39 @@ interface Face {
   tintindex?: number;
 }
 
+/**
+ * Minecraft のティントカラーマップ（ブロック別）
+ * tintindex に対応するRGB値を定義
+ */
+const TINT_COLORS: Record<string, Record<number, [number, number, number]>> = {
+  // 草ブロック系: tintindex 0 = 緑色ティント
+  grass_block: { 0: [127, 178, 56] }, // #7FB238
+  grass: { 0: [127, 178, 56] },
+  tall_grass: { 0: [127, 178, 56] },
+  seagrass: { 0: [127, 178, 56] },
+  
+  // ツタ系: tintindex 0 = 緑色ティント
+  vine: { 0: [127, 178, 56] },
+  
+  // 葉系: tintindex 0 = 緑色ティント
+  oak_leaves: { 0: [127, 178, 56] },
+  birch_leaves: { 0: [128, 168, 63] },
+  spruce_leaves: { 0: [95, 130, 60] },
+  jungle_leaves: { 0: [97, 163, 43] },
+  acacia_leaves: { 0: [155, 178, 33] },
+  dark_oak_leaves: { 0: [103, 117, 53] },
+  
+  // 茶色系
+  cocoa: { 0: [128, 92, 63] },
+  
+  // サボテン
+  cactus: { 0: [95, 160, 54] },
+  
+  // 水系
+  water: { 0: [63, 127, 255] },
+  water_cauldron: { 0: [63, 127, 255] },
+};
+
 interface Element {
   from: [number, number, number];
   to: [number, number, number];
@@ -82,6 +115,16 @@ export class MinecraftBlockRenderer {
   constructor(resourcePackPath: string, modelPath?: string) {
     this.resourcePackPathResolver = new MinecraftPathResolver(resourcePackPath);
     this.modelPathResolver = new MinecraftPathResolver(modelPath ?? resourcePackPath);
+  }
+
+  /**
+   * ブロック名からモデルパスを解決
+   */
+  private async resolveBlockModelPath(blockName: string): Promise<string> {
+    // block/{blockName} のパスを返す
+    const modelPath = `block/${blockName.replace(/^minecraft:/, '')}`;
+    console.debug(`[BlockModel] ${blockName} -> ${modelPath}`);
+    return modelPath;
   }
 
   /**
@@ -311,6 +354,82 @@ export class MinecraftBlockRenderer {
   }
 
   /**
+   * テクスチャにティント色を適用（透明部分は保護）
+   */
+  private applyTint(texture: Canvas, tintColor: [number, number, number]): Canvas {
+    const [r, g, b] = tintColor;
+    const width = texture.width;
+    const height = texture.height;
+    
+    // ティント済みテクスチャ用キャンバスを作成
+    const tintedCanvas = createCanvas(width, height);
+    const tintCtx = tintedCanvas.getContext('2d');
+    
+    // 元のテクスチャを描画
+    tintCtx.drawImage(texture, 0, 0);
+    
+    // 元のテクスチャのピクセルデータを取得
+    const sourceImageData = tintCtx.getImageData(0, 0, width, height);
+    const sourceData = sourceImageData.data;
+    
+    // ティント済みレイヤーをオフスクリーンキャンバスに描画
+    const tintLayerCanvas = createCanvas(width, height);
+    const tintLayerCtx = tintLayerCanvas.getContext('2d');
+    tintLayerCtx.globalCompositeOperation = 'multiply';
+    tintLayerCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    tintLayerCtx.fillRect(0, 0, width, height);
+    
+    // ティント済みレイヤーを適用
+    tintCtx.globalCompositeOperation = 'multiply';
+    tintCtx.drawImage(tintLayerCanvas, 0, 0);
+    
+    // 結果のピクセルデータを取得
+    const resultImageData = tintCtx.getImageData(0, 0, width, height);
+    const resultData = resultImageData.data;
+    
+    // 元のアルファ値が0だったピクセルは透明のまま保つ
+    for (let i = 0; i < sourceData.length; i += 4) {
+      const originalAlpha = sourceData[i + 3];
+      if (originalAlpha === 0) {
+        // 完全透明なピクセルは透明のまま
+        resultData[i] = 0;
+        resultData[i + 1] = 0;
+        resultData[i + 2] = 0;
+        resultData[i + 3] = 0;
+      } else {
+        // 元のアルファ値を保持
+        resultData[i + 3] = originalAlpha;
+      }
+    }
+    
+    // 修正後のデータをキャンバスに戻す
+    tintCtx.putImageData(resultImageData, 0, 0);
+    
+    return tintedCanvas;
+  }
+
+  /**
+   * モデル名からティントカラーを取得
+   * 未知のブロックの場合はデフォルト緑色を返す
+   */
+  private getTintColor(modelPath: string, tintindex?: number): [number, number, number] | null {
+    if (tintindex === undefined) return null;
+    
+    const nameParts = modelPath.split('/');
+    const type = nameParts[0]; // 'block' or 'item'
+    const baseName = nameParts.pop()?.replace(/\.json$/, '');
+    if (!baseName) return null;
+
+    const colorMap = TINT_COLORS[baseName];
+    if (!colorMap) {
+      console.debug(`[Tint] Unknown ${type} "${baseName}" with tintindex ${tintindex}, using default green tint`);
+      return [127, 178, 56]; // デフォルト緑色 #7FB238
+    }
+    
+    return colorMap[tintindex] || null;
+  }
+
+  /**
    * ブロックモデルをレンダリング
    */
   async renderBlock(
@@ -327,7 +446,23 @@ export class MinecraftBlockRenderer {
     // scaleが未指定の場合、height, widthどちらか小さい方のサイズに基づいて動的に計算
     const scale = options.scale ?? Math.round((height > width ? width : height) / 25.6);
 
-    const model = await this.loadModel(modelPath);
+    // blockstate から実際のモデルパスを解決
+    // modelPath が block/{name} 形式の場合は、blockstate をチェック
+    let resolvedModelPath = modelPath;
+    if (modelPath.startsWith('block/')) {
+      const blockName = modelPath.replace(/^block\//, '');
+      const resolvedPath = await this.resolveBlockModelPath(blockName);
+      // resolvedPath が minecraft: プレフィックスを持つ場合のみ使用
+      if (resolvedPath && resolvedPath !== `block/${blockName}`) {
+        resolvedModelPath = resolvedPath;
+      }
+    }
+
+    // モデルパスを正規化（minecraft: プレフィックス等を除去）
+    const normalizedModelPath = this.modelPathResolver.normalizeModelPath(resolvedModelPath);
+    console.debug(`[Render] Final model path: ${resolvedModelPath} -> ${normalizedModelPath}`);
+
+    const model = await this.loadModel(normalizedModelPath);
     if (!model.elements) throw new Error('Model has no elements to render');
   
     const canvas = createCanvas(width, height);
@@ -387,7 +522,18 @@ export class MinecraftBlockRenderer {
     for (const renderData of allFacesToRender) {
       const { faceName, face, projected } = renderData;
       const texturePath = this.resolveTexture(face.texture, model.textures || {});
-      const texture = await this.loadTexture(texturePath, faceName);
+      let texture = await this.loadTexture(texturePath, faceName);
+
+      // ティント色を適用（tintindexがあれば適用、透明部分は保護）
+      if (face.tintindex !== undefined) {
+        const tintColor = this.getTintColor(normalizedModelPath, face.tintindex);
+        if (tintColor) {
+          console.debug(`[Tint] ${faceName} face of ${normalizedModelPath}: applying tint ${tintColor} (tintindex: ${face.tintindex})`);
+          texture = this.applyTint(texture, tintColor);
+        }
+      } else {
+        console.debug(`[Tint] ${faceName} face of ${normalizedModelPath}: no tint (texturePath: ${texturePath})`);
+      }
 
       // 描画状態を完全に分離
       ctx.save();
@@ -478,8 +624,8 @@ export class MinecraftBlockRenderer {
       const shadowAlpha = 1.0 - shade;
       const shadowColor = `rgba(0, 0, 0, ${shadowAlpha})`;
 
-      // 影を描写
-      ctx.globalCompositeOperation = 'source-over'; 
+      // 影を描写（テクスチャが存在する部分だけに適用）
+      ctx.globalCompositeOperation = 'source-atop'; 
       ctx.fillStyle = shadowColor;
       ctx.fill();
 
