@@ -1,0 +1,17 @@
+---
+title: My MDX Page
+description: This is my first MDX page in Docusaurus.
+---
+
+import { getResourcePack } from '../mcpacks/resourcepack';
+
+# Hello from MDX!
+
+This is a sample MDX page. You can write Markdown here and also use React components.
+
+[Go back to Home](/)
+
+<img src={getResourcePack("minecraft:stone")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
+<img src={getResourcePack("minecraft:dispenser", { width: 128 })} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
+<img src={getResourcePack("minecraft:apple")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
+<img src={getResourcePack("minecraft:observer")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />

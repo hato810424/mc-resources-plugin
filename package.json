@@ -7,6 +7,7 @@
     "dev": "pnpm --filter @hato810424/mc-resources-plugin dev",
     "dev:vite": "pnpm --filter test dev",
     "dev:webpack": "pnpm --filter test-webpack dev",
+    "dev:docusaurus": "pnpm --filter test-docusaurus dev",
     "preview": "pnpm build && pnpm --filter test build && pnpm --filter test preview"
   },
   "packageManager": "pnpm@10.24.0"

@@ -45,6 +45,7 @@ const config: Config = {
       outputPath: './src/mcpacks',
       startUpRenderCacheRefresh: true,
       logLevel: 'debug',
+      include: ['**/*.mdx', '**/*.tsx', '**/*.ts', '**/*.js', '**/*.jsx'],
     }),
   ]
 };

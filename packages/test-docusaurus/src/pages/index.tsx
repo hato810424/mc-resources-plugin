@@ -1,3 +1,4 @@
+import Link from '@docusaurus/Link';
 import type {ReactNode} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
@@ -13,6 +14,9 @@ export default function Home(): ReactNode {
         <div style={{padding: '2rem'}}>
           <h1>Docusaurus + @hato810424/mc-resources-plugin</h1>
           <p>Minecraft Resource Pack Example</p>
+          <div>
+            <Link to="/my-mdx-page">Go to MDX Page</Link>
+          </div>
           <div>
             <img src={getResourcePack("minecraft:dispenser")} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
             <img src={getResourcePack("minecraft:dispenser", { width: 32 })} style={{ width: '100px', height: '100px', imageRendering: 'pixelated' }} />
