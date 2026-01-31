@@ -1,7 +1,5 @@
 import type { PluginOptions } from '../types';
 import type { PluginOption } from 'vite';
-import { rmSync } from 'fs';
-import { join } from 'path';
 import { McResourcesCore } from './core';
 
 const mcResourcesPlugin = async (options: PluginOptions) => {

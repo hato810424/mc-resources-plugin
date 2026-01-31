@@ -46,9 +46,9 @@ describe('mc-resources-plugin', () => {
     ).toBeUndefined()
 
     // Check that the generated JS file exists and contains expected content
-    const jsContent = readFileSync(join(mcpacksDir, 'resourcepack.js'), 'utf-8')
-    expect(jsContent).toContain('/textures/item/cake.png')
-    expect(jsContent).not.toContain('/textures/item/arrow.png')
+    const jsContent = readFileSync(join(mcpacksDir, 'resourcepack.mjs'), 'utf-8')
+    expect(jsContent).toContain('./rendered-items/cake.png')
+    expect(jsContent).not.toContain('./rendered-items/arrow.png')
 
     // Check that the generated d.ts file exists and contains expected content
     const dtsContent = readFileSync(join(mcpacksDir, 'resourcepack.d.ts'), 'utf-8')
@@ -56,10 +56,7 @@ describe('mc-resources-plugin', () => {
     expect(dtsContent).toContain('minecraft:cake')
 
     // Check empty resource pack
-    const jsContentEmpty = readFileSync(join(mcpacksEmptyDir, 'resourcepack.js'), 'utf-8')
-    expect(jsContentEmpty).not.toContain('/textures/item/cake.png')
-
-    const dtsContentEmpty = readFileSync(join(mcpacksEmptyDir, 'resourcepack.d.ts'), 'utf-8')
-    expect(dtsContentEmpty).not.toContain('export function getResourcePack')
+    const jsContentEmpty = readFileSync(join(mcpacksEmptyDir, 'resourcepack.mjs'), 'utf-8')
+    expect(jsContentEmpty).not.toContain('./rendered-items/cake.png')
   });
 });

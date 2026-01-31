@@ -8,7 +8,7 @@ import { createVersionManager, type MinecraftVersionManager } from '../mojang/mi
 import { createItemManager } from '../mojang/itemManager';
 import { createResourcePack, type MinecraftResourcePack } from "../render/ResourcePack";
 import path, { join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { scanSourceCode } from "../codeScanner";
 import type { IncomingHttpHeaders } from "node:http";
 import type { RenderOptions } from "../render/Renderer";
@@ -114,14 +114,12 @@ export class McResourcesCore {
   async generateFiles(options: {
     isBuild?: boolean;
     usedIds?: Set<string>;
-    isBase64?: boolean;
     ensureItems3d?: boolean;
     itemsUrlMap?: Map<string, string>;
   } = {}): Promise<void> {
     const {
       isBuild = false,
       usedIds = undefined,
-      isBase64 = false,
       ensureItems3d = false,
       itemsUrlMap = undefined,
     } = options;
@@ -161,9 +159,6 @@ export class McResourcesCore {
       });
       const tsCode = await generateTypeDefinitions({ images, itemManager, versionId: this.config.mcVersion });
 
-      // 出力ディレクトリを初期化
-      initializeOutputDirectory(this.config.outputPath, this.config.emptyOutDir);
-
       // ファイルを書き込む
       writeFiles(this.config.outputPath, jsCode, tsCode);
 
@@ -200,7 +195,10 @@ export class McResourcesCore {
       // 出力ディレクトリの rendered-items フォルダを作成
       const renderedItemsDir = join(this.config.outputPath, 'rendered-items');
       if (existsSync(renderedItemsDir)) {
-        rmSync(renderedItemsDir, { recursive: true });
+        const files = readdirSync(renderedItemsDir);
+        for (const file of files) {
+          rmSync(join(renderedItemsDir, file), { recursive: true, force: true });
+        }
       }
       mkdirSync(renderedItemsDir, { recursive: true });
 
@@ -260,7 +258,7 @@ export class McResourcesCore {
           
           const mapKey = target.optionHash ? `${target.itemId}_${target.optionHash}` : target.itemId;
           // 相対パスを記録（importで使用）
-          const relativePath = `/${path.relative(process.cwd(), join(renderedItemsDir, fileName)).replace(/\\/g, '/')}`;
+          const relativePath = `./rendered-items/${fileName}`;
           return { mapKey, relativePath };
         } catch (err) {
           defaultLogger.warn(`Failed to render ${target.itemId} with options ${target.optionHash || 'default'}: ${err}`);
@@ -286,6 +284,9 @@ export class McResourcesCore {
    * Build
    */
   async build(options: { distDir: string }): Promise<void> {
+    // 出力ディレクトリを初期化
+    initializeOutputDirectory(this.config.outputPath, this.config.emptyOutDir);
+    
     try {
       await this.getAssetsInBuildMode();
     } catch (err) {
@@ -327,7 +328,7 @@ export class McResourcesCore {
     defaultLogger.debug('Starting file generation in background...');
     
     // ファイル生成をバックグラウンドで実行（await しない）
-    this.generateFiles({ isBase64: true, ensureItems3d: true }).catch(err => {
+    this.generateFiles({ ensureItems3d: true }).catch(err => {
       defaultLogger.warn(`Failed to generate files: ${err}`);
     });
   }
@@ -358,7 +359,7 @@ export class McResourcesCore {
       defaultLogger.debug('Starting file generation in background...');
       
       // ファイル生成をバックグラウンドで実行（await しない）
-      this.generateFiles({ isBase64: true, ensureItems3d: true }).catch(err => {
+      this.generateFiles({ ensureItems3d: true }).catch(err => {
         defaultLogger.warn(`Failed to generate files: ${err}`);
       });
     }
