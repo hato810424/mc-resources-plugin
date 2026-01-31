@@ -134,6 +134,7 @@ export interface RenderOptions {
 export class MinecraftBlockRenderer {
   private modelsCache = new Map<string, MinecraftModel>();
   private texturesCache = new Map<string, Canvas>();
+  private tintedTexturesCache = new Map<string, Canvas>();
   private resourcePackPathResolver: MinecraftPathResolver;
   private modelPathResolver: MinecraftPathResolver;
 
@@ -263,29 +264,23 @@ export class MinecraftBlockRenderer {
    */
   private project(
     point: Vec3,
-    rotation: [number, number, number],
+    cosX: number, sinX: number,
+    cosY: number, sinY: number,
+    cosZ: number, sinZ: number,
     scale: number
   ): { x: number; y: number; z: number } {
-    const [rotX, rotY, rotZ] = rotation.map((deg) => (deg * Math.PI) / 180);
-
     // 回転行列の適用
     let { x, y, z } = point;
 
     // Y軸回転
-    const cosY = Math.cos(rotY);
-    const sinY = Math.sin(rotY);
     const x1 = x * cosY - z * sinY;
     const z1 = x * sinY + z * cosY;
 
     // X軸回転
-    const cosX = Math.cos(rotX);
-    const sinX = Math.sin(rotX);
     const y1 = y * cosX - z1 * sinX;
     const z2 = y * sinX + z1 * cosX;
 
     // Z軸回転
-    const cosZ = Math.cos(rotZ);
-    const sinZ = Math.sin(rotZ);
     const x2 = x1 * cosZ - y1 * sinZ;
     const y2 = x1 * sinZ + y1 * cosZ;
 
@@ -394,24 +389,28 @@ export class MinecraftBlockRenderer {
   /**
    * テクスチャにティント色を適用（透明部分は保護）
    */
-  private async applyTint(texture: Canvas, tintColor: [number, number, number]): Promise<Canvas> { // 引数と戻り値を Canvas に戻す
+  private async applyTint(texture: Canvas, tintColor: [number, number, number]): Promise<Canvas> {
     const [r, g, b] = tintColor;
     
-    // CanvasをBufferに変換してsharpで処理
-    const buffer = texture.toBuffer('image/png');
-    let sharpImage = sharp(buffer);
-
-    // ティント適用
-    sharpImage = sharpImage.tint({ r, g, b });
-
-    // Bufferを再度Canvasに変換
-    const tintedBuffer = await sharpImage.toBuffer();
-    const tintedImage = await loadImage(tintedBuffer);
-    const tintedCanvas = createCanvas(tintedImage.width, tintedImage.height);
+    const tintedCanvas = createCanvas(texture.width, texture.height);
     const tintCtx = tintedCanvas.getContext('2d');
-    tintCtx.drawImage(tintedImage, 0, 0);
+    
+    // 1. ティント色で塗りつぶす
+    tintCtx.fillStyle = `rgb(${r},${g},${b})`;
+    tintCtx.fillRect(0, 0, texture.width, texture.height);
+    
+    // 2. 元のテクスチャを multiply で合成（色の適用）
+    tintCtx.globalCompositeOperation = 'multiply';
+    tintCtx.drawImage(texture, 0, 0);
+    
+    // 3. 元のテクスチャのアルファチャンネルでクリップ（透明部分の保護）
+    const finalCanvas = createCanvas(texture.width, texture.height);
+    const finalCtx = finalCanvas.getContext('2d');
+    finalCtx.drawImage(texture, 0, 0);
+    finalCtx.globalCompositeOperation = 'source-in';
+    finalCtx.drawImage(tintedCanvas, 0, 0);
 
-    return tintedCanvas;
+    return finalCanvas;
   }
 
   /**
@@ -478,6 +477,12 @@ export class MinecraftBlockRenderer {
     const centerX = width / 2;
     const centerY = height / 2;
   
+    // 回転行列の事前計算
+    const [rotX, rotY, rotZ] = rotation.map((deg) => (deg * Math.PI) / 180);
+    const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+    const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+    const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+
     // === A. 全パーツの全フェイスを格納するバッファ ===
     const allFacesToRender: any[] = [];
 
@@ -503,7 +508,7 @@ export class MinecraftBlockRenderer {
           case 'east': vertices = [{x:to[0],y:from[1],z:to[2]},{x:to[0],y:from[1],z:from[2]},{x:to[0],y:to[1],z:from[2]},{x:to[0],y:to[1],z:to[2]}]; break;
         }
 
-        const projected = vertices.map((v) => this.project(v, rotation, scale));
+        const projected = vertices.map((v) => this.project(v, cosX, sinX, cosY, sinY, cosZ, sinZ, scale));
 
         // 背面カリング: 投影後の2D外積で判定
         const v0 = projected[0], v1 = projected[1], v2 = projected[2];
@@ -533,7 +538,13 @@ export class MinecraftBlockRenderer {
       if (face.tintindex !== undefined) {
         const tintColor = this.getTintColor(normalizedModelPath, face.tintindex);
         if (tintColor) {
-          texture = await this.applyTint(texture, tintColor); // await を追加
+          const tintCacheKey = `${texturePath}:${faceName}:${tintColor.join(',')}`;
+          if (this.tintedTexturesCache.has(tintCacheKey)) {
+            texture = this.tintedTexturesCache.get(tintCacheKey)!;
+          } else {
+            texture = await this.applyTint(texture, tintColor);
+            this.tintedTexturesCache.set(tintCacheKey, texture);
+          }
         }
       }
 
@@ -719,20 +730,25 @@ export class MinecraftBlockRenderer {
 
     for (const { layer, tintindex } of textures) {
       const texturePath = `textures/${layer}.png`;
-      const textureCanvas = await this.loadTexture(texturePath); // Canvasをロード
+      let textureCanvas = await this.loadTexture(texturePath); // Canvasをロード
       
+      // ティント適用
+      const tintColor = TINT_COLORS[modelId.replace('item/', '')]?.[tintindex ?? 0] || TINT_COLORS[modelId]?.[tintindex ?? 0];
+      if (tintColor) {
+        const tintCacheKey = `${texturePath}:item:${tintColor.join(',')}`;
+        if (this.tintedTexturesCache.has(tintCacheKey)) {
+          textureCanvas = this.tintedTexturesCache.get(tintCacheKey)!;
+        } else {
+          textureCanvas = await this.applyTint(textureCanvas, tintColor);
+          this.tintedTexturesCache.set(tintCacheKey, textureCanvas);
+        }
+      }
+
       let sharpImage = sharp(textureCanvas.toBuffer('image/png')); // CanvasをBufferに変換してsharpに渡す
 
       // サイズ調整 (scaleに基づいてリサイズ)
       if (resolvedScale !== 1) {
         sharpImage = sharpImage.resize(Math.round(16 * resolvedScale), Math.round(16 * resolvedScale), { kernel: sharp.kernel.nearest });
-      }
-
-      // ティント適用
-      const tintColor = TINT_COLORS[modelId.replace('item/', '')]?.[tintindex ?? 0] || TINT_COLORS[modelId]?.[tintindex ?? 0];
-      if (tintColor) {
-        const [r, g, b] = tintColor;
-        sharpImage = sharpImage.tint({ r, g, b }); // RGBオブジェクトを渡す
       }
       
       const processedBuffer = await sharpImage.toBuffer();
