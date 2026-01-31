@@ -233,7 +233,7 @@ export class McResourcesCore {
       defaultLogger.info(`Rendering ${renderTargets.length} items for build...`);
 
       // 各組み合わせをレンダリング
-      for (const target of renderTargets) {
+      const renderPromises = renderTargets.map(async (target) => {
         try {
           const cleanId = target.itemId.replace('minecraft:', '');
           // デフォルト時はhashを含めない
@@ -260,10 +260,18 @@ export class McResourcesCore {
           const mapKey = target.optionHash ? `${target.itemId}_${target.optionHash}` : target.itemId;
           // 相対パスを記録（importで使用）
           const relativePath = `/${path.relative(process.cwd(), join(renderedItemsDir, fileName)).replace(/\\/g, '/')}`;
-          itemUrlMap.set(mapKey, relativePath);
-          defaultLogger.info(`Rendered item saved: ${mapKey} -> ${relativePath}`);
+          return { mapKey, relativePath };
         } catch (err) {
           defaultLogger.warn(`Failed to render ${target.itemId} with options ${target.optionHash || 'default'}: ${err}`);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(renderPromises);
+      for (const result of results) {
+        if (result) {
+          itemUrlMap.set(result.mapKey, result.relativePath);
+          defaultLogger.info(`Rendered item saved: ${result.mapKey} -> ${result.relativePath}`);
         }
       }
     } catch (error) {
