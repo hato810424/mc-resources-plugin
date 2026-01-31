@@ -1,35 +1,5 @@
 {
-  "name": "@hato810424/mc-resources-plugin",
-  "version": "0.0.0-beta.11",
-  "author": "hato810424",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/hato810424/mc-resources-plugin.git"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "exports": {
-    "./vite": {
-      "types": "./packages/mc-resources-plugin/dist/vite.d.ts",
-      "import": "./packages/mc-resources-plugin/dist/vite.mjs",
-      "default": "./packages/mc-resources-plugin/dist/vite.mjs"
-    },
-    "./webpack": {
-      "types": "./packages/mc-resources-plugin/dist/webpack.d.cts",
-      "import": "./packages/mc-resources-plugin/dist/webpack.mjs",
-      "require": "./packages/mc-resources-plugin/dist/webpack.cjs",
-      "default": "./packages/mc-resources-plugin/dist/webpack.cjs"
-    },
-    "./docusaurus": {
-      "types": "./packages/mc-resources-plugin/dist/docusaurus.d.ts",
-      "import": "./packages/mc-resources-plugin/dist/docusaurus.mjs",
-      "default": "./packages/mc-resources-plugin/dist/docusaurus.mjs"
-    }
-  },
-  "files": [
-    "packages/mc-resources-plugin/dist"
-  ],
+  "private": true,
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "build": "pnpm --filter @hato810424/mc-resources-plugin build",
@@ -38,8 +8,7 @@
     "dev:vite": "pnpm --filter test dev",
     "dev:webpack": "pnpm --filter test-webpack dev",
     "dev:docusaurus": "pnpm --filter test-docusaurus dev",
-    "preview": "pnpm build && pnpm --filter test build && pnpm --filter test preview",
-    "prepublishOnly": "pnpm run build"
+    "preview": "pnpm build && pnpm --filter test build && pnpm --filter test preview"
   },
   "packageManager": "pnpm@10.24.0"
 }
