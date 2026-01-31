@@ -8,8 +8,7 @@
     "url": "git+https://github.com/hato810424/mc-resources-plugin.git"
   },
   "publishConfig": {
-    "access": "restricted",
-    "registry": "https://npm.pkg.github.com/hato810424"
+    "access": "public"
   },
   "exports": {
     "./vite": {
