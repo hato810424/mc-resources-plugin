@@ -20,6 +20,9 @@ export default defineConfig({
 });
 ```
 
+## トラブルシューティング
+- リソースパックを変更してもテクスチャが更新されない場合は、`cacheDir`で指定した場所のキャッシュを削除してください。
+
 ## Example
 `./packages/test` にReact + Viteのプロジェクトがあります。
 ```bash

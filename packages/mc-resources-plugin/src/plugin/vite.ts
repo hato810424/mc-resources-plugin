@@ -46,11 +46,6 @@ const mcResourcesPlugin = async (options: PluginOptions) => {
         return;
       }
 
-      // 起動時にキャッシュをクリア
-      if (core.config.startUpRenderCacheRefresh) {
-        rmSync(join(core.config.cacheDir!, 'renders'), { recursive: true, force: true });
-      }
-
       if (isBuild) {
         await core.build({
           distDir: outDir,

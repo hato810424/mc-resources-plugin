@@ -9,7 +9,6 @@ export default defineConfig({
       resourcePackPath: './assets/resource-pack',
       mcVersion: '1.18.2',
       outputPath: './src/mcpacks',
-      startUpRenderCacheRefresh: true,
       logLevel: 'debug',
     })
   ],

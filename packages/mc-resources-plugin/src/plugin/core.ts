@@ -13,6 +13,7 @@ import { scanSourceCode } from "../codeScanner";
 import type { IncomingHttpHeaders } from "node:http";
 import type { RenderOptions } from "../render/Renderer";
 import chalk from "chalk";
+import { createHash } from "node:crypto";
 
 export const parseConfig = (options: PluginOptions) => {
   const validatedOptions = PluginOptionsSchema.parse(options);
@@ -317,6 +318,11 @@ export class McResourcesCore {
    * Dev Server Start
    */
   async devServerStart(): Promise<void> {
+    // 起動時にキャッシュをクリア
+    if (this.config.startUpRenderCacheRefresh) {
+      rmSync(join(this.config.cacheDir!, 'renders'), { recursive: true, force: true });
+    }
+
     this.fileGenerationStarted = true;
     defaultLogger.debug('Starting file generation in background...');
     
@@ -421,7 +427,14 @@ export class McResourcesCore {
       // キャッシュキーにサイズ情報を含める（オプションの順序を統一）
       const scaleStr = scale !== undefined ? `_${scale}` : '';
       const cacheKey = `${minecraftId}_${width}x${height}${scaleStr}.png`;
-      const cacheFile = join(this.config.cacheDir!, 'renders' , cacheKey);
+
+      // リソースごとに違うキャッシュを使用する
+      const hash = createHash('md5')
+        .update(this.config.resourcePackPath)
+        .digest('hex')
+        .substring(0, 10);
+
+      const cacheFile = join(this.config.cacheDir!, 'renders' , hash, cacheKey);
       
       defaultLogger.debug(`Processing request: id=${minecraftId}, width=${width}, height=${height}, scale=${scale}, cacheKey=${cacheKey}`);
       
