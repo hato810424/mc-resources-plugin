@@ -3,10 +3,12 @@ import { createItemManager } from '../../src/mojang/itemManager';
 import { createVersionManager } from '../../src/mojang/minecraftVersionManager';
 import findCacheDirectory from 'find-cache-directory';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 describe('ItemManager', () => {
   let cacheDir: string;
   let versionId = '1.18.2';
+  let resourcePackPath = resolve(__dirname, '../assets/resource-pack');
 
   beforeAll(() => {
     cacheDir = findCacheDirectory({
@@ -22,7 +24,7 @@ describe('ItemManager', () => {
 
   it('should create an ItemManager instance', () => {
     const versionManager = createVersionManager(cacheDir);
-    const itemManager = createItemManager(versionManager);
+    const itemManager = createItemManager(resourcePackPath, versionManager);
     expect(itemManager).toBeDefined();
   });
 
@@ -35,7 +37,7 @@ describe('ItemManager', () => {
 
   it('should get item IDs from en_us.json', async () => {
     const versionManager = createVersionManager(cacheDir);
-    const itemManager = createItemManager(versionManager);
+    const itemManager = createItemManager(resourcePackPath, versionManager);
 
     const itemIds = await itemManager.getItemIds(versionId);
     expect(Array.isArray(itemIds)).toBe(true);
@@ -46,7 +48,7 @@ describe('ItemManager', () => {
 
   it('should get item label in en_us', async () => {
     const versionManager = createVersionManager(cacheDir);
-    const itemManager = createItemManager(versionManager);
+    const itemManager = createItemManager(resourcePackPath, versionManager);
 
     const label = await itemManager.getItemLabel(versionId, 'stone', 'en_us');
     expect(label).toBeDefined();
@@ -55,7 +57,7 @@ describe('ItemManager', () => {
 
   it('should get item labels in multiple languages', async () => {
     const versionManager = createVersionManager(cacheDir);
-    const itemManager = createItemManager(versionManager);
+    const itemManager = createItemManager(resourcePackPath, versionManager);
 
     const labels = await itemManager.getItemLabelsByLangs(versionId, 'stone', [
       'en_us',
