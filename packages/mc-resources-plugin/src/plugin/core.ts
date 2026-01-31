@@ -388,7 +388,7 @@ export class McResourcesCore {
       }
 
       // モデルの表示タイプを ItemManager を使って判断
-      const isItemModel = this.itemManager.isItem2DModel(minecraftId, assetsDirPath);
+      const isItemModel = await this.itemManager.isItem2DModel(minecraftId, assetsDirPath);
 
       // クエリパラメータから width, height, scale を取得
       const baseSize = isItemModel ? CONFIG.TEXTURE_SIZE : CONFIG.WIDTH;

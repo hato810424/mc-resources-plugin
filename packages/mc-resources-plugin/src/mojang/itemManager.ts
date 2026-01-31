@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
 import type { MinecraftVersionManager } from './minecraftVersionManager';
 import defaultLogger from '../logger';
 import { join } from 'path';
@@ -12,6 +13,7 @@ class ItemManager {
   private versionManager: MinecraftVersionManager;
   private items3dCache: Map<string, string[]> = new Map();
   private itemIdsCache: Map<string, string[]> = new Map();
+  private displayTypeCache: Map<string, '2d' | '3d'> = new Map();
 
   constructor(versionManager: MinecraftVersionManager) {
     this.versionManager = versionManager;
@@ -160,14 +162,19 @@ class ItemManager {
     return result;
   }
 
-  public isItem2DModel(modelId: string, assetsDir: string): boolean {
-    return this.getModelDisplayType(modelId, assetsDir) === '2d';
+  public async isItem2DModel(modelId: string, assetsDir: string): Promise<boolean> {
+    return (await this.getModelDisplayType(modelId, assetsDir)) === '2d';
   }
 
   /**
    * モデルの表示タイプを判定 ('2d' または '3d')
    */
-  private getModelDisplayType(modelId: string, assetsDir: string): '2d' | '3d' {
+  private async getModelDisplayType(modelId: string, assetsDir: string): Promise<'2d' | '3d'> {
+    const cacheKey = `${assetsDir}:${modelId}`;
+    if (this.displayTypeCache.has(cacheKey)) {
+      return this.displayTypeCache.get(cacheKey)!;
+    }
+
     const BASE_PATH = join(assetsDir, 'assets', 'minecraft', 'models');
     
     let [, rawPath] = modelId.includes(':') ? modelId.split(':') : ['minecraft', modelId];
@@ -177,20 +184,28 @@ class ItemManager {
 
     let depth = 0;
     let currentPath = join(BASE_PATH, `${modelPath}.json`);
+    const visited = new Set<string>();
 
-    while (existsSync(currentPath) && depth < 10) {
+    while (existsSync(currentPath) && depth < 10 && !visited.has(currentPath)) {
+      visited.add(currentPath);
       try {
-        const json = JSON.parse(readFileSync(currentPath, 'utf8'));
+        const content = await readFile(currentPath, 'utf8');
+        const json = JSON.parse(content);
         const parent = json.parent;
 
-        if (!parent) return '3d';
+        if (!parent) {
+          this.displayTypeCache.set(cacheKey, '3d');
+          return '3d';
+        }
 
         if (parent === 'minecraft:item/generated' || parent === 'item/generated' ||
             parent === 'minecraft:item/handheld' || parent === 'item/handheld') {
+          this.displayTypeCache.set(cacheKey, '2d');
           return '2d';
         }
 
         if (parent.startsWith('minecraft:block/') || parent.startsWith('block/')) {
+          this.displayTypeCache.set(cacheKey, '3d');
           return '3d';
         }
 
@@ -198,10 +213,12 @@ class ItemManager {
         currentPath = join(BASE_PATH, `${modelPath}.json`);
         depth++;
       } catch {
+        this.displayTypeCache.set(cacheKey, '3d');
         return '3d';
       }
     }
 
+    this.displayTypeCache.set(cacheKey, '3d');
     return '3d';
   }
 
@@ -217,13 +234,14 @@ class ItemManager {
     // 1. まずアイテムモデルとして解決を試みる
     let itemModelPath = join(assetsDir, 'assets', 'minecraft', 'models', 'item', `${baseId}.json`);
     if (existsSync(itemModelPath)) {
-      const displayType = this.getModelDisplayType(`item/${baseId}`, assetsDir);
+      const displayType = await this.getModelDisplayType(`item/${baseId}`, assetsDir);
       if (displayType === '2d') {
         return `item/${baseId}`; // 2Dアイテムとして確定
       }
       // ここで、アイテムモデルがブロックモデルを親として参照しているかを確認する
       try {
-        const itemModelJson = JSON.parse(readFileSync(itemModelPath, 'utf8'));
+        const itemModelContent = await readFile(itemModelPath, 'utf8');
+        const itemModelJson = JSON.parse(itemModelContent);
         if (itemModelJson.parent && itemModelJson.parent.startsWith('block/')) {
           // アイテムモデルの親がブロックモデルなら、ブロックモデルとして扱う
           return itemModelJson.parent; // 例: 'block/dispenser'
@@ -263,12 +281,10 @@ class ItemManager {
       const batchSize = 30;
       for (let i = 0; i < itemIds.length; i += batchSize) {
         const batch = itemIds.slice(i, i + batchSize);
-        const batchPromises = batch.map(itemId => 
-          Promise.resolve().then(() => ({
-            itemId,
-            type: this.getModelDisplayType(itemId, assetsDir)
-          }))
-        );
+        const batchPromises = batch.map(async (itemId) => ({
+          itemId,
+          type: await this.getModelDisplayType(itemId, assetsDir)
+        }));
         
         const batchResults = await Promise.all(batchPromises);
         for (const result of batchResults) {
