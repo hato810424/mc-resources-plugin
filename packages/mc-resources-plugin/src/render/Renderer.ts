@@ -34,7 +34,7 @@ interface Face {
  * Minecraft のティントカラーマップ（ブロック別）
  * tintindex に対応するRGB値を定義
  */
-const TINT_COLORS: Record<string, Record<number, [number, number, number]>> = {
+export const TINT_COLORS: Record<string, Record<number, [number, number, number]>> = {
   // 草ブロック系: tintindex 0 = 緑色ティント
   grass_block: { 0: [127, 178, 56] }, // #7FB238
   grass: { 0: [127, 178, 56] },

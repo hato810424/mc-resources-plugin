@@ -50,7 +50,7 @@ export class McResourcesCore {
     // バージョンマネージャーを初期化
     this.versionManager = createVersionManager(this.config.cacheDir);
     // アイテムマネージャーを初期化
-    this.itemManager = createItemManager(this.versionManager);
+    this.itemManager = createItemManager(this.config.resourcePackPath, this.versionManager);
 
     // ログレベルを設定
     defaultLogger.setLogLevel(this.config.logLevel);
@@ -384,7 +384,7 @@ export class McResourcesCore {
       
       // ItemManager を初期化
       if (!this.itemManager) {
-        this.itemManager = createItemManager(this.versionManager);
+        this.itemManager = createItemManager(this.config.resourcePackPath, this.versionManager);
       }
 
       // モデルの表示タイプを ItemManager を使って判断
@@ -396,6 +396,21 @@ export class McResourcesCore {
       const height = parseInt(urlObj.searchParams.get('height') ?? String(width), 10);
       const scaleParam = urlObj.searchParams.get('scale');
       const scale = scaleParam ? parseFloat(scaleParam) : undefined;
+
+      // 2Dアイテムかつティント不要、かつデフォルトサイズ（16x16）の場合は、オリジナルのテクスチャを直接返す
+      if (isItemModel && width === 16 && height === 16 && scale === undefined) {
+        const needsTint = await this.itemManager.needsTint(this.config.mcVersion, minecraftId);
+        if (!needsTint) {
+          const texturePath = await this.itemManager.getItemTexturePath(this.config.mcVersion, minecraftId);
+
+          if (texturePath && existsSync(texturePath)) {
+            const imageBuffer = readFileSync(texturePath);
+            res.setHeader('Content-Type', 'image/png');
+            res.send(imageBuffer);
+            return;
+          }
+        }
+      }
 
       // レスポンス送信関数
       const sendResponse = (imageBuffer: Buffer) => {

@@ -3,6 +3,7 @@ import { readFile } from 'fs/promises';
 import type { MinecraftVersionManager } from './minecraftVersionManager';
 import defaultLogger from '../logger';
 import { join } from 'path';
+import { TINT_COLORS } from '../render/Renderer';
 
 export interface ItemData {
   id: string;
@@ -10,12 +11,14 @@ export interface ItemData {
 }
 
 class ItemManager {
+  private resourcePackPath: string;
   private versionManager: MinecraftVersionManager;
   private items3dCache: Map<string, string[]> = new Map();
   private itemIdsCache: Map<string, string[]> = new Map();
   private displayTypeCache: Map<string, '2d' | '3d'> = new Map();
 
-  constructor(versionManager: MinecraftVersionManager) {
+  constructor(resourcePackPath: string, versionManager: MinecraftVersionManager) {
+    this.resourcePackPath = resourcePackPath;
     this.versionManager = versionManager;
   }
 
@@ -73,28 +76,62 @@ class ItemManager {
     
     // 2. モデルを再帰的に追いかける
     let currentModelPath = modelPath;
-    while (existsSync(currentModelPath)) {
-      const model = JSON.parse(readFileSync(currentModelPath, 'utf8'));
+    const visited = new Set<string>();
+    while (existsSync(currentModelPath) && !visited.has(currentModelPath)) {
+      visited.add(currentModelPath);
+      const content = await readFile(currentModelPath, 'utf8');
+      const model = JSON.parse(content);
 
       // layer0があれば、それがそのアイテムの「顔」となるテクスチャ
       if (model.textures && model.textures.layer0) {
         let textureId = model.textures.layer0;
         // 'minecraft:item/diamond' -> 'textures/item/diamond.png'
         const [, texPath] = textureId.includes(':') ? textureId.split(':') : ['minecraft', textureId];
-        return join(assetsDir, 'assets', 'minecraft', 'textures', `${texPath}.png`);
+        return join(this.resourcePackPath, 'assets', 'minecraft', 'textures', `${texPath}.png`);
       }
 
       // layer0がない場合、parentを辿る
       if (model.parent) {
         const [, parentPath] = model.parent.split(':');
         // 親が block/系 の場合は models/block/ を見に行く必要がある
-        currentModelPath = join(assetsDir, 'assets', 'minecraft', 'models', 'block', `${parentPath}.json`);
+        const parentCategory = parentPath.startsWith('block/') ? 'block' : 'item';
+        const parentName = parentPath.replace(/^(block|item)\//, '');
+        currentModelPath = join(assetsDir, 'assets', 'minecraft', 'models', parentCategory, `${parentName}.json`);
       } else {
         break;
       }
     }
 
     return null; // 見つからない場合
+  }
+
+  /**
+   * アイテムがティントを必要とするか判定
+   */
+  async needsTint(versionId: string, itemId: string): Promise<boolean> {
+    const [namespace, id] = itemId.includes(':') ? itemId.split(':') : ['minecraft', itemId];
+    const cleanId = id.replace(/^item\//, '').replace(/^block\//, '');
+    
+    // 1. 定義済みのティントカラーがあるかチェック
+    // Renderer.ts の TINT_COLORS を動的に取得
+    const hasDefinedTint = !!(TINT_COLORS[cleanId]);
+    if (hasDefinedTint) return true;
+
+    // 2. モデルの overrides をチェック（カスタムモデルデータなど）
+    const assetsDir = await this.versionManager.getAssets(versionId);
+    const modelPath = join(assetsDir, 'assets', 'minecraft', 'models', 'item', `${cleanId}.json`);
+    
+    if (existsSync(modelPath)) {
+      try {
+        const content = await readFile(modelPath, 'utf8');
+        const model = JSON.parse(content);
+        if (model.overrides && model.overrides.length > 0) {
+          return true;
+        }
+      } catch {}
+    }
+
+    return false;
   }
 
   /**
@@ -322,7 +359,8 @@ class ItemManager {
 
 export type { ItemManager };
 export function createItemManager(
+  resourcePackPath: string,
   versionManager: MinecraftVersionManager
 ): ItemManager {
-  return new ItemManager(versionManager);
+  return new ItemManager(resourcePackPath, versionManager);
 }
