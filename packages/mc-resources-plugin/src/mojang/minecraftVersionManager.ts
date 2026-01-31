@@ -263,19 +263,19 @@ class MinecraftVersionManager {
         
         const entries = await zip.entries();
         for (const entry of Object.values(entries)) {
-            // 特定のディレクトリ配下のファイルのみを対象にする
-            if (entry.name.startsWith("assets/")) {
-                const destPath = join(assetsDirPath, entry.name);
+          // 特定のディレクトリ配下のファイルのみを対象にする
+          if (entry.name.startsWith("assets/minecraft")) {
+            const destPath = join(assetsDirPath, entry.name);
 
-                if (entry.isDirectory) {
-                    mkdirSync(destPath, { recursive: true });
-                } else {
-                    // 親ディレクトリの作成を確実に行う
-                    mkdirSync(dirname(destPath), { recursive: true });
-                    // 解凍実行
-                    await zip.extract(entry.name, destPath);
-                }
+            if (entry.isDirectory) {
+              mkdirSync(destPath, { recursive: true });
+            } else {
+              // 親ディレクトリの作成を確実に行う
+              mkdirSync(dirname(destPath), { recursive: true });
+              // 解凍実行
+              await zip.extract(entry.name, destPath);
             }
+          }
         }
 
         await zip.close();
