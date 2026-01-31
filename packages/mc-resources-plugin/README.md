@@ -1,6 +1,12 @@
 # @hato810424/mc-resources-plugin
 MinecraftのリソースパックをWebで使用しやすくするVite, Webpack, Docusaurusプラグインです。
 
+## インストール
+[https://www.npmjs.com/package/@hato810424/mc-resources-plugin](https://www.npmjs.com/package/@hato810424/mc-resources-plugin)
+```bash
+pnpm install @hato810424/mc-resources-plugin
+```
+
 ## 特徴
 - Mojang APIを使用して、Minecraftのバージョンごとにモデルを取得し、レンダリングします。
 - リソースパックのパスを指定するだけで、簡単にリソースパックを使用できます。
@@ -20,11 +26,24 @@ export default defineConfig({
 });
 ```
 
+プラグインを起動すると、ファイルが自動生成されるので、そのファイルをimportして使用します。
+```tsx
+import { getResourcePack } from 'path/to/mcpacks/resourcepack.mjs';
+
+<img
+  src={getResourcePack("minecraft:cake")} 
+  style={{
+    imageRendering: 'pixelated'
+    // これを指定することで、テクスチャが綺麗に表示されます。
+  }}
+/>
+```
+
 ## トラブルシューティング
 - リソースパックを変更してもテクスチャが更新されない場合は、`cacheDir`で指定した場所のキャッシュを削除してください。
 
 ## Example
-`./packages/test` にReact + Viteのプロジェクトがあります。
+`./packages/test` にReact + Viteのプロジェクトがあります。プロジェクトルートで以下のコマンドを実行すると、ブラウザで表示されます。
 ```bash
 pnpm install
 pnpm run build
