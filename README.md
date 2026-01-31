@@ -1,5 +1,5 @@
 # @hato810424/mc-resources-plugin
-MinecraftのリソースパックをWebで使用しやすくするViteプラグインです。
+MinecraftのリソースパックをWebで使用しやすくするVite, Webpack, Docusaurusプラグインです。
 
 ## 特徴
 - Mojang APIを使用して、Minecraftのバージョンごとにモデルを取得し、レンダリングします。
