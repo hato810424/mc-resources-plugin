@@ -11,6 +11,8 @@ import path, { join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { scanSourceCode } from "../codeScanner";
 import type { IncomingHttpHeaders } from "node:http";
+import type { RenderOptions } from "../render/Renderer";
+import chalk from "chalk";
 
 export const parseConfig = (options: PluginOptions) => {
   const validatedOptions = PluginOptionsSchema.parse(options);
@@ -113,14 +115,14 @@ export class McResourcesCore {
     usedIds?: Set<string>;
     isBase64?: boolean;
     ensureItems3d?: boolean;
-    items3dUrlMap?: Map<string, string>;
+    itemsUrlMap?: Map<string, string>;
   } = {}): Promise<void> {
     const {
       isBuild = false,
       usedIds = undefined,
       isBase64 = false,
       ensureItems3d = false,
-      items3dUrlMap = undefined,
+      itemsUrlMap = undefined,
     } = options;
 
     if (this.isGenerated) return; // 既に生成済みの場合スキップ
@@ -151,14 +153,12 @@ export class McResourcesCore {
 
       const jsCode = await generateGetResourcePackCode({
         images,
-        resourcePackPath: this.config.resourcePackPath,
-        isBase64,
         usedIds,
         itemManager,
         versionId: this.config.mcVersion,
-        items3dUrlMap,
+        itemsUrlMap,
       });
-      const tsCode = await generateTypeDefinitions({ images, usedIds, itemManager, versionId: this.config.mcVersion });
+      const tsCode = await generateTypeDefinitions({ images, itemManager, versionId: this.config.mcVersion });
 
       // 出力ディレクトリを初期化
       initializeOutputDirectory(this.config.outputPath, this.config.emptyOutDir);
@@ -166,8 +166,7 @@ export class McResourcesCore {
       // ファイルを書き込む
       writeFiles(this.config.outputPath, jsCode, tsCode);
 
-      const displayCount = usedIds ? usedIds.size : images.length;
-      defaultLogger.info(`Generated with ${displayCount} images (found ${images.length} total)`);
+      defaultLogger.info(chalk.bgGreen('Generated') + ' TypeScript and JavaScript files');
 
       this.isGenerated = true;
     })();
@@ -176,9 +175,9 @@ export class McResourcesCore {
   }
 
   /**
-   * ビルド時に3Dアイテムをレンダリング（outputPath配下に保存）
+   * ビルド時にアイテムをレンダリング（outputPath配下に保存）
    */
-  async renderItems3dForBuildWithEmit(  
+  async renderItemsForBuildWithEmit(  
     detectedIds: Set<string>,
     renderingOptions?: Map<string, { itemId: string; optionHash: string; width?: number; height?: number; scale?: number }>
   ): Promise<Map<string, string>> {
@@ -189,17 +188,6 @@ export class McResourcesCore {
     }
 
     try {
-      // ビルド時は3Dアイテムリストを完全に取得（キャッシュなし）
-      const items3dList = await this.itemManager.get3DItems(this.config.mcVersion);
-      const items3dSet = new Set(items3dList);
-      
-      // 検出されたIDと3Dアイテムの交差を取得
-      const items3dToRender = Array.from(detectedIds).filter(id => items3dSet.has(id));
-      
-      if (items3dToRender.length === 0) {
-        return itemUrlMap;
-      }
-
       // アセット取得
       const assetsDirPath = await this.versionManager.getAssets(this.config.mcVersion);
       
@@ -218,11 +206,11 @@ export class McResourcesCore {
       // レンダリング対象の組み合わせを構築
       const renderTargets: { itemId: string; optionHash?: string; width?: number; height?: number; scale?: number }[] = [];
       const processedItems = new Set<string>();
-      
+
       // オプションが指定されているアイテムをレンダリング
       if (renderingOptions && renderingOptions.size > 0) {
         for (const [, opt] of renderingOptions) {
-          if (items3dSet.has(opt.itemId)) {
+          if (detectedIds.has(opt.itemId)) { // 検出されたIDに含まれるか確認
             renderTargets.push({
               itemId: opt.itemId,
               optionHash: opt.optionHash,
@@ -236,13 +224,13 @@ export class McResourcesCore {
       }
       
       // オプション指定されていないアイテムをデフォルトでレンダリング
-      for (const itemId of items3dToRender) {
+      for (const itemId of detectedIds) {
         if (!processedItems.has(itemId)) {
           renderTargets.push({ itemId });
         }
       }
 
-      defaultLogger.info(`Rendering ${renderTargets.length} 3D items for build...`);
+      defaultLogger.info(`Rendering ${renderTargets.length} items for build...`);
 
       // 各組み合わせをレンダリング
       for (const target of renderTargets) {
@@ -252,20 +240,26 @@ export class McResourcesCore {
           const fileName = target.optionHash && target.optionHash !== 'default' ? `${cleanId}_${target.optionHash}.png` : `${cleanId}.png`;
           const outputFile = join(renderedItemsDir, fileName);
           
-          const modelPath = `block/${cleanId}`;
-          
+          const isItemModel = await this.itemManager.isItem2DModel(target.itemId, assetsDirPath);
+
+          const modelPath = isItemModel ? `item/${cleanId}` : `block/${cleanId}`;
+
           const renderOptions = {
-            width: target.width ?? CONFIG.WIDTH,
-            height: target.height ?? target.width ?? CONFIG.WIDTH,
+            width: target.width ?? (isItemModel ? CONFIG.TEXTURE_SIZE : CONFIG.WIDTH),
+            height: target.height ?? target.width ?? (isItemModel ? CONFIG.TEXTURE_SIZE : CONFIG.WIDTH),
             ...(target.scale !== undefined && { scale: target.scale })
           };
-          
-          await this.resourcePack!.getRenderer().renderBlock(modelPath, outputFile, renderOptions);
+
+          if (isItemModel) {
+            await this.resourcePack!.getRenderer().renderItem(modelPath, outputFile, renderOptions);
+          } else {
+            await this.resourcePack!.getRenderer().renderBlock(modelPath, outputFile, renderOptions);
+          }
           defaultLogger.info(`Rendered: ${target.itemId} with options: ${JSON.stringify(renderOptions)}`);
           
           const mapKey = target.optionHash ? `${target.itemId}_${target.optionHash}` : target.itemId;
           // 相対パスを記録（importで使用）
-          const relativePath = `./rendered-items/${fileName}`;
+          const relativePath = `/${path.relative(process.cwd(), join(renderedItemsDir, fileName)).replace(/\\/g, '/')}`;
           itemUrlMap.set(mapKey, relativePath);
           defaultLogger.info(`Rendered item saved: ${mapKey} -> ${relativePath}`);
         } catch (err) {
@@ -302,12 +296,12 @@ export class McResourcesCore {
     
     // ビルド時に3Dアイテムをレンダリング（実際のURLで記録）
     defaultLogger.debug(`Rendering options: ${JSON.stringify(Array.from(renderingOptions?.entries() ?? []))}`);
-    const items3dUrlMap = await this.renderItems3dForBuildWithEmit(detectedIds, renderingOptions);
+    const itemsUrlMap = await this.renderItemsForBuildWithEmit(detectedIds, renderingOptions);
 
     // ファイル生成（実際のレンダリングURLを渡す）
     await this.generateFiles({ 
       usedIds: detectedIds.size > 0 ? detectedIds : undefined,
-      items3dUrlMap 
+      itemsUrlMap 
     });
   }
 
@@ -372,8 +366,25 @@ export class McResourcesCore {
         return;
       }
 
+      // アセット取得が完了するまで待つ
+      const assetsDirPath = await this.versionManager.getAssets(this.config.mcVersion);
+        
+      // ResourcePack インスタンスを再利用
+      if (!this.resourcePack) {
+        this.resourcePack = createResourcePack(this.config.resourcePackPath, assetsDirPath);
+      }
+      
+      // ItemManager を初期化
+      if (!this.itemManager) {
+        this.itemManager = createItemManager(this.versionManager);
+      }
+
+      // モデルの表示タイプを ItemManager を使って判断
+      const isItemModel = this.itemManager.isItem2DModel(minecraftId, assetsDirPath);
+
       // クエリパラメータから width, height, scale を取得
-      const width = parseInt(urlObj.searchParams.get('width') ?? String(CONFIG.WIDTH), 10);
+      const baseSize = isItemModel ? CONFIG.TEXTURE_SIZE : CONFIG.WIDTH;
+      const width = parseInt(urlObj.searchParams.get('width') ?? String(baseSize), 10);
       const height = parseInt(urlObj.searchParams.get('height') ?? String(width), 10);
       const scaleParam = urlObj.searchParams.get('scale');
       const scale = scaleParam ? parseFloat(scaleParam) : undefined;
@@ -414,27 +425,25 @@ export class McResourcesCore {
         if (this.fileGenerationPromise) {
           await this.fileGenerationPromise;
         }
-        
-        // アセット取得が完了するまで待つ
-        const assetsDirPath = await this.versionManager.getAssets(this.config.mcVersion);
-        
-        // ResourcePack インスタンスを再利用
-        if (!this.resourcePack) {
-          this.resourcePack = createResourcePack(this.config.resourcePackPath, assetsDirPath);
-        }
-        
-        // block/ プレフィックスをつけてレンダリング
-        const modelPath = `block/${minecraftId}`;
-        const renderOptions: any = {
+
+        const renderPath = await this.itemManager.getItemRenderPath(this.config.mcVersion, minecraftId);
+
+        const renderOptions: RenderOptions = {
           width,
           height
         };
         if (scale !== undefined) {
           renderOptions.scale = scale;
         }
-        await this.resourcePack!.getRenderer().renderBlock(modelPath, cacheFile, renderOptions);
 
-        const imageBuffer = readFileSync(cacheFile);
+        let outputPath = cacheFile;
+        if (isItemModel) {
+          outputPath = await this.resourcePack!.getRenderer().renderItem(renderPath, cacheFile, renderOptions);
+        } else {
+          outputPath = await this.resourcePack!.getRenderer().renderBlock(renderPath, cacheFile, renderOptions);
+        }
+
+        const imageBuffer = readFileSync(outputPath);
         defaultLogger.info(`Rendered: ${minecraftId} with options: ${JSON.stringify(renderOptions)}`);
         return imageBuffer;
       })();

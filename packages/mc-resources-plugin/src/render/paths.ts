@@ -33,7 +33,7 @@ export class MinecraftPathResolver {
       .replace(/^minecraft:/, '')
       .replace(/\.json$/, '');
 
-    if (!normalized.startsWith('block/')) {
+    if (!normalized.startsWith('block/') && !normalized.startsWith('item/')) {
       normalized = `block/${normalized}`;
     }
     return normalized;
@@ -46,7 +46,9 @@ export class MinecraftPathResolver {
    *     item/apple -> item/apple.png
    */
   normalizeTexturePath(texturePath: string): string {
-    let normalized = texturePath.replace(/^minecraft:/, '');
+    let normalized = texturePath
+      .replace(/^minecraft:/, '')
+      .replace(/^textures\//, '');
 
     // ディレクトリプレフィックスがない場合は block/ を付与
     if (!normalized.startsWith('block/') && !normalized.startsWith('item/')) {

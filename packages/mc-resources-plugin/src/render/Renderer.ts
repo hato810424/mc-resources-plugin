@@ -13,6 +13,8 @@ import { dirname } from 'path';
 import sharp from 'sharp';
 import { MinecraftPathResolver } from './paths';
 import { CONFIG } from '../env';
+import { writeFileSync } from 'fs';
+import logger from '../logger';
 
 interface Vec3 {
   x: number;
@@ -59,6 +61,11 @@ const TINT_COLORS: Record<string, Record<number, [number, number, number]>> = {
   // 水系
   water: { 0: [63, 127, 255] },
   water_cauldron: { 0: [63, 127, 255] },
+
+  // アイテム系
+  potion: { 0: [127, 178, 56] }, // 例: 緑色ポーション
+  tipped_arrow: { 0: [127, 178, 56] }, // 例: 緑色のティントアロー
+  spawn_egg: { 0: [78, 78, 78] }, // 例: 灰色
 };
 
 interface Element {
@@ -99,7 +106,25 @@ interface MinecraftModel {
   };
 }
 
-interface RenderOptions {
+interface ItemModel {
+  parent?: string;
+  textures?: Record<string, string>;
+  display?: {
+    thirdperson_righthand?: {
+      rotation?: [number, number, number];
+      translation?: [number, number, number];
+      scale?: [number, number, number];
+    };
+  };
+  overrides?: Array<{
+    predicate: {
+      custom_model_data: number;
+    };
+    model: string;
+  }>;
+}
+
+export interface RenderOptions {
   width: number;
   height: number;
   scale?: number;
@@ -123,7 +148,6 @@ export class MinecraftBlockRenderer {
   private async resolveBlockModelPath(blockName: string): Promise<string> {
     // block/{blockName} のパスを返す
     const modelPath = `block/${blockName.replace(/^minecraft:/, '')}`;
-    console.debug(`[BlockModel] ${blockName} -> ${modelPath}`);
     return modelPath;
   }
 
@@ -132,6 +156,11 @@ export class MinecraftBlockRenderer {
    */
   private async loadModel(modelPath: string): Promise<MinecraftModel> {
     const fullPath = this.modelPathResolver.getModelFilePath(modelPath);
+
+    // モデルパスが特殊なbuiltinモデルの場合、空のモデルを返す
+    if (modelPath === 'builtin/generated' || modelPath === 'builtin/entity') {
+      return {};
+    }
 
     if (this.modelsCache.has(fullPath)) {
       return this.modelsCache.get(fullPath)!;
@@ -142,6 +171,11 @@ export class MinecraftBlockRenderer {
 
     // parent継承の解決
     if (model.parent) {
+      // 親が特殊なbuiltinモデルの場合、継承せずに現在のモデルのみを返す
+      if (model.parent === 'builtin/generated' || model.parent === 'builtin/entity') {
+        this.modelsCache.set(fullPath, model);
+        return model;
+      }
       const parentModel = await this.loadModel(model.parent);
       const merged: MinecraftModel = {
         ...parentModel,
@@ -174,17 +208,17 @@ export class MinecraftBlockRenderer {
     }
     // パスを正規化（textures/プレフィックスは除去）
     let texturePath = this.resourcePackPathResolver.normalizeTexturePath(texture);
-    texturePath = texturePath.replace(/^textures\//, '');
     return texturePath;
   }
 
   /**
    * テクスチャ画像を読み込む（上下面は水平反転、壁面は反転なし）
    */
-  private async loadTexture(texturePath: string, faceName?: 'down' | 'up' | 'north' | 'south' | 'west' | 'east'): Promise<Canvas> {
+  private async loadTexture(texturePath: string, faceName?: 'down' | 'up' | 'north' | 'south' | 'west' | 'east'): Promise<Canvas> { // 戻り値を Buffer に変更
     const shouldFlipX = faceName === 'up' || faceName === 'down';
     const cacheKey = shouldFlipX ? `${texturePath}:flipX` : texturePath;
     
+    // キャッシュをチェック（Bufferとしてキャッシュする）
     if (this.texturesCache.has(cacheKey)) {
       return this.texturesCache.get(cacheKey)!;
     }
@@ -204,6 +238,7 @@ export class MinecraftBlockRenderer {
         ctx.drawImage(image, 0, 0);
       }
       
+      // CanvasをBufferに変換してキャッシュ
       this.texturesCache.set(cacheKey, canvas);
       return canvas;
     } catch (error) {
@@ -216,6 +251,9 @@ export class MinecraftBlockRenderer {
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, 8, 8);
       ctx.fillRect(8, 8, 8, 8);
+      
+      // エラーテクスチャもBufferに変換して返す
+      this.texturesCache.set(cacheKey, canvas);
       return canvas;
     }
   }
@@ -356,55 +394,23 @@ export class MinecraftBlockRenderer {
   /**
    * テクスチャにティント色を適用（透明部分は保護）
    */
-  private applyTint(texture: Canvas, tintColor: [number, number, number]): Canvas {
+  private async applyTint(texture: Canvas, tintColor: [number, number, number]): Promise<Canvas> { // 引数と戻り値を Canvas に戻す
     const [r, g, b] = tintColor;
-    const width = texture.width;
-    const height = texture.height;
     
-    // ティント済みテクスチャ用キャンバスを作成
-    const tintedCanvas = createCanvas(width, height);
+    // CanvasをBufferに変換してsharpで処理
+    const buffer = texture.toBuffer('image/png');
+    let sharpImage = sharp(buffer);
+
+    // ティント適用
+    sharpImage = sharpImage.tint({ r, g, b });
+
+    // Bufferを再度Canvasに変換
+    const tintedBuffer = await sharpImage.toBuffer();
+    const tintedImage = await loadImage(tintedBuffer);
+    const tintedCanvas = createCanvas(tintedImage.width, tintedImage.height);
     const tintCtx = tintedCanvas.getContext('2d');
-    
-    // 元のテクスチャを描画
-    tintCtx.drawImage(texture, 0, 0);
-    
-    // 元のテクスチャのピクセルデータを取得
-    const sourceImageData = tintCtx.getImageData(0, 0, width, height);
-    const sourceData = sourceImageData.data;
-    
-    // ティント済みレイヤーをオフスクリーンキャンバスに描画
-    const tintLayerCanvas = createCanvas(width, height);
-    const tintLayerCtx = tintLayerCanvas.getContext('2d');
-    tintLayerCtx.globalCompositeOperation = 'multiply';
-    tintLayerCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-    tintLayerCtx.fillRect(0, 0, width, height);
-    
-    // ティント済みレイヤーを適用
-    tintCtx.globalCompositeOperation = 'multiply';
-    tintCtx.drawImage(tintLayerCanvas, 0, 0);
-    
-    // 結果のピクセルデータを取得
-    const resultImageData = tintCtx.getImageData(0, 0, width, height);
-    const resultData = resultImageData.data;
-    
-    // 元のアルファ値が0だったピクセルは透明のまま保つ
-    for (let i = 0; i < sourceData.length; i += 4) {
-      const originalAlpha = sourceData[i + 3];
-      if (originalAlpha === 0) {
-        // 完全透明なピクセルは透明のまま
-        resultData[i] = 0;
-        resultData[i + 1] = 0;
-        resultData[i + 2] = 0;
-        resultData[i + 3] = 0;
-      } else {
-        // 元のアルファ値を保持
-        resultData[i + 3] = originalAlpha;
-      }
-    }
-    
-    // 修正後のデータをキャンバスに戻す
-    tintCtx.putImageData(resultImageData, 0, 0);
-    
+    tintCtx.drawImage(tintedImage, 0, 0);
+
     return tintedCanvas;
   }
 
@@ -422,7 +428,7 @@ export class MinecraftBlockRenderer {
 
     const colorMap = TINT_COLORS[baseName];
     if (!colorMap) {
-      console.debug(`[Tint] Unknown ${type} "${baseName}" with tintindex ${tintindex}, using default green tint`);
+      logger.debug(`[Tint] Unknown ${type} "${baseName}" with tintindex ${tintindex}, using default green tint`);
       return [127, 178, 56]; // デフォルト緑色 #7FB238
     }
     
@@ -436,7 +442,7 @@ export class MinecraftBlockRenderer {
     modelPath: string,
     outputPath: string,
     options: RenderOptions,
-  ): Promise<void> {
+  ): Promise<string> {
     const {
       width,
       height,
@@ -460,7 +466,6 @@ export class MinecraftBlockRenderer {
 
     // モデルパスを正規化（minecraft: プレフィックス等を除去）
     const normalizedModelPath = this.modelPathResolver.normalizeModelPath(resolvedModelPath);
-    console.debug(`[Render] Final model path: ${resolvedModelPath} -> ${normalizedModelPath}`);
 
     const model = await this.loadModel(normalizedModelPath);
     if (!model.elements) throw new Error('Model has no elements to render');
@@ -528,11 +533,8 @@ export class MinecraftBlockRenderer {
       if (face.tintindex !== undefined) {
         const tintColor = this.getTintColor(normalizedModelPath, face.tintindex);
         if (tintColor) {
-          console.debug(`[Tint] ${faceName} face of ${normalizedModelPath}: applying tint ${tintColor} (tintindex: ${face.tintindex})`);
-          texture = this.applyTint(texture, tintColor);
+          texture = await this.applyTint(texture, tintColor); // await を追加
         }
-      } else {
-        console.debug(`[Tint] ${faceName} face of ${normalizedModelPath}: no tint (texturePath: ${texturePath})`);
       }
 
       // 描画状態を完全に分離
@@ -657,6 +659,98 @@ export class MinecraftBlockRenderer {
     const buffer = canvas.toBuffer('image/png');
     await mkdir(dirname(outputPath), { recursive: true });
     await sharp(buffer).png().toFile(outputPath);
+    return outputPath;
+  }
+
+  /**
+   * アイテムモデルをレンダリング
+   */
+  async renderItem(
+    modelId: string,
+    outputPath: string,
+    options: RenderOptions,
+  ): Promise<string> {
+    const {
+      width = CONFIG.TEXTURE_SIZE,
+      height = CONFIG.TEXTURE_SIZE,
+      scale = CONFIG.TEXTURE_SIZE
+    } = options ?? {};
+    await mkdir(dirname(outputPath), { recursive: true });
+
+    const model = await this.loadModel(modelId);
+    if (!model) {
+      throw new Error(`Item model not found: ${modelId}`);
+    }
+
+    const resolvedScale = scale / 16;
+
+    const textures: { layer: string; tintindex?: number }[] = [];
+    let currentModel: ItemModel | null = model;
+    let depth = 0;
+    while (currentModel && depth < 10) {
+      if (currentModel.textures) {
+        for (const key in currentModel.textures) {
+          if (key.startsWith('layer')) {
+            textures.push({
+              layer: currentModel.textures[key].replace('minecraft:', ''),
+              tintindex: currentModel.overrides?.[0]?.predicate?.custom_model_data !== undefined ? 0 : undefined, // カスタムモデルデータがあれば tintindex 0 を適用（暫定）
+            });
+          }
+        }
+      }
+      if (currentModel.parent) {
+        const parentId = currentModel.parent.replace('minecraft:', '');
+        if (parentId === 'builtin/entity') { // 組み込みエンティティモデルは無視
+          currentModel = null;
+        } else {
+          currentModel = await this.loadModel(parentId);
+        }
+      } else {
+        currentModel = null;
+      }
+      depth++;
+    }
+
+    if (textures.length === 0) {
+      throw new Error(`No textures found for item model: ${modelId}`);
+    }
+
+    let composedImage: sharp.Sharp | undefined;
+
+    for (const { layer, tintindex } of textures) {
+      const texturePath = `textures/${layer}.png`;
+      const textureCanvas = await this.loadTexture(texturePath); // Canvasをロード
+      
+      let sharpImage = sharp(textureCanvas.toBuffer('image/png')); // CanvasをBufferに変換してsharpに渡す
+
+      // サイズ調整 (scaleに基づいてリサイズ)
+      if (resolvedScale !== 1) {
+        sharpImage = sharpImage.resize(Math.round(16 * resolvedScale), Math.round(16 * resolvedScale), { kernel: sharp.kernel.nearest });
+      }
+
+      // ティント適用
+      const tintColor = TINT_COLORS[modelId.replace('item/', '')]?.[tintindex ?? 0] || TINT_COLORS[modelId]?.[tintindex ?? 0];
+      if (tintColor) {
+        const [r, g, b] = tintColor;
+        sharpImage = sharpImage.tint({ r, g, b }); // RGBオブジェクトを渡す
+      }
+      
+      const processedBuffer = await sharpImage.toBuffer();
+
+      if (!composedImage) {
+        composedImage = sharp(processedBuffer);
+      } else {
+        composedImage = composedImage.composite([{ input: processedBuffer }]);
+      }
+    }
+
+    if (!composedImage) {
+      throw new Error(`Failed to compose image for item model: ${modelId}`);
+    }
+
+    const finalImageBuffer = await composedImage.resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).toBuffer();
+    writeFileSync(outputPath, finalImageBuffer);
+    return outputPath;
   }
 
   /**

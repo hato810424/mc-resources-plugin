@@ -10,6 +10,7 @@ export const CONFIG = {
     create: true,
   }),
   START_UP_RENDER_CACHE_REFRESH: false,
+  TEXTURE_SIZE: 16,
   WIDTH: 128,
   HEIGHT: 128,
   ROTATION: [-30, 45, 0],
@@ -21,6 +22,7 @@ export const CONFIG = {
   EXCLUDE: string[];
   CACHE_DIR: string | undefined;
   START_UP_RENDER_CACHE_REFRESH: boolean;
+  TEXTURE_SIZE: number;
   WIDTH: number;
   HEIGHT: number;
   ROTATION: [number, number, number];

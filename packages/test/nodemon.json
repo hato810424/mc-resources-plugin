@@ -3,6 +3,6 @@
     "../mc-resources-plugin/dist",
     "../mc-resources-plugin/src/**/*.json"
   ],
-  "delay": "1000",
+  "delay": "2000",
   "exec": "vite"
 }

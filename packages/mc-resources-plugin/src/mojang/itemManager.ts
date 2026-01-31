@@ -160,6 +160,10 @@ class ItemManager {
     return result;
   }
 
+  public isItem2DModel(modelId: string, assetsDir: string): boolean {
+    return this.getModelDisplayType(modelId, assetsDir) === '2d';
+  }
+
   /**
    * モデルの表示タイプを判定 ('2d' または '3d')
    */
@@ -199,6 +203,46 @@ class ItemManager {
     }
 
     return '3d';
+  }
+
+  /**
+   * minecraftId からレンダーパスを取得
+   * ブロックモデルなら block/{id}、アイテムモデルなら item/{id}
+   */
+  async getItemRenderPath(versionId: string, minecraftId: string): Promise<string> {
+    const assetsDir = await this.versionManager.getAssets(versionId);
+
+    const baseId = minecraftId.replace(/^minecraft:/, '');
+
+    // 1. まずアイテムモデルとして解決を試みる
+    let itemModelPath = join(assetsDir, 'assets', 'minecraft', 'models', 'item', `${baseId}.json`);
+    if (existsSync(itemModelPath)) {
+      const displayType = this.getModelDisplayType(`item/${baseId}`, assetsDir);
+      if (displayType === '2d') {
+        return `item/${baseId}`; // 2Dアイテムとして確定
+      }
+      // ここで、アイテムモデルがブロックモデルを親として参照しているかを確認する
+      try {
+        const itemModelJson = JSON.parse(readFileSync(itemModelPath, 'utf8'));
+        if (itemModelJson.parent && itemModelJson.parent.startsWith('block/')) {
+          // アイテムモデルの親がブロックモデルなら、ブロックモデルとして扱う
+          return itemModelJson.parent; // 例: 'block/dispenser'
+        }
+      } catch (e) {
+        defaultLogger.warn(`Failed to parse item model ${itemModelPath}: ${e}`);
+      }
+      return `item/${baseId}`; // それ以外は3Dアイテムモデルとして扱う
+    }
+
+    // 2. アイテムモデルが見つからない、またはブロックモデルを参照していない場合は、ブロックモデルとして解決を試みる
+    let blockModelPath = join(assetsDir, 'assets', 'minecraft', 'models', 'block', `${baseId}.json`);
+    if (existsSync(blockModelPath)) {
+      return `block/${baseId}`;
+    }
+
+    // どちらでも見つからない場合は、デフォルトでアイテムモデルとして返す（エラーになる可能性あり）
+    defaultLogger.warn(`Could not find render path for ${minecraftId}. Defaulting to item/${baseId}.`);
+    return `item/${baseId}`;
   }
 
   /**

@@ -154,7 +154,7 @@ function extractResourceIds(
     while ((match = resourcePackNoOptionRegex.exec(content)) !== null) {
       const itemId = `minecraft:${match[1]}`;
       usedIds.add(itemId);
-      
+
       // デフォルト版のレンダリングオプションを追加
       // （オプション付きで既に検出されていてもデフォルト版は別に追加）
       const uniqueKey = `${itemId}:default`;
@@ -162,8 +162,6 @@ function extractResourceIds(
         renderingOptions.set(uniqueKey, {
           itemId,
           optionHash: 'default',
-          width: CONFIG.WIDTH,
-          height: CONFIG.HEIGHT,
         });
       }
       
