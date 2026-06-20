@@ -140,7 +140,8 @@ export class McResourcesCore {
         // ItemManagerが初期化されていない場合は無視
       }
 
-      if (ensureItems3d && !isBuild && itemManager) {
+      // 型定義の全補完には3Dアイテム一覧が必要（dev / build 共通）
+      if ((ensureItems3d || isBuild) && itemManager) {
         try {
           await itemManager.get3DItems(this.config.mcVersion);
         } catch (err) {
@@ -161,7 +162,8 @@ export class McResourcesCore {
         images,
         itemManager,
         versionId: this.config.mcVersion,
-        usedIds,
+        // ビルド時も dev と同様に全アイテムの型を生成（JS は usedIds で絞る）
+        usedIds: isBuild ? undefined : usedIds,
       });
 
       // ファイルを書き込む
