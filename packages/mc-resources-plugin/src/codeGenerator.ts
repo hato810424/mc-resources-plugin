@@ -28,22 +28,17 @@ export async function generateGetResourcePackCode({
   versionId: string;
   itemsUrlMap?: Map<string, string>;
 }): Promise<string> {
-  // usedIdsが指定されている場合、使用されているアイテムのみフィルタリング
-  let filteredImages = usedIds ? images.filter(img => {
-    const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
-    return usedIds.has(itemId);
-  }) : images;
-
   // itemManagerが指定されている場合、存在するアイテムのみにフィルタリング（並列化）
   const items = new Set<string>();
-  
-  if (itemManager) {
-    // 3Dアイテムリストを取得（キャッシュがあれば使用、なければ空配列）
+
+  if (itemManager && usedIds === undefined) {
     const items3dList = await itemManager.get3DItemsLazy(versionId);
     items3dList.forEach(id => items.add(id));
 
     const itemIds = await itemManager.getItemIds(versionId);
     itemIds.forEach(id => items.add(id));
+  } else if (usedIds !== undefined) {
+    usedIds.forEach(id => items.add(id));
   }
 
   let itemsImports = '';
@@ -82,35 +77,22 @@ export async function generateGetResourcePackCode({
     }
   }
 
-  // リソースパックマッピングを生成
   const mapEntries: string[] = [];
-  
-  items.forEach(itemId => {
-    const hashMap = itemHashMap.get(itemId);
-    if (hashMap && hashMap.has('default')) {
-      mapEntries.push(`    "${itemId}": ${hashMap.get('default')}`);
-    } else {
-      // レンダリングされていない場合は（no Build Mode）、デフォルトのエンドポイント
-      mapEntries.push(`    "${itemId}": "/@hato810424:mc-resources-plugin/minecraft:${itemId.replace('minecraft:', '')}"`);
-    }
-  });
 
-  if (itemHashMap.size > 0) {
+  if (itemsUrlMap) {
     for (const [itemId, hashMap] of itemHashMap) {
-      const isAlreadyAdded = filteredImages.some(img => 
-        `minecraft:${img.path.split('/').pop()?.replace(/\.[^.]+$/, '')}` === itemId
-      );
-      
-      if (!isAlreadyAdded) {
-        for (const [optionHash, importVar] of hashMap) {
-          if (optionHash === 'default') {
-            mapEntries.push(`    "${itemId}": ${importVar}`);
-          } else {
-            mapEntries.push(`    "${itemId}_${optionHash}": ${importVar}`);
-          }
+      for (const [optionHash, importVar] of hashMap) {
+        if (optionHash === 'default') {
+          mapEntries.push(`    "${itemId}": ${importVar}`);
+        } else {
+          mapEntries.push(`    "${itemId}_${optionHash}": ${importVar}`);
         }
       }
     }
+  } else {
+    items.forEach(itemId => {
+      mapEntries.push(`    "${itemId}": "/@hato810424:mc-resources-plugin/minecraft:${itemId.replace('minecraft:', '')}"`);
+    });
   }
 
   const finalMap = mapEntries.join(',\n');
@@ -168,12 +150,17 @@ export async function generateTypeDefinitions({
   images,
   itemManager,
   versionId,
+  usedIds,
 }: {
   images: ImageInfo[];
   itemManager?: ItemManager;
   versionId?: string;
+  usedIds?: Set<string>;
 }): Promise<string> {
-  const filteredImages = images;
+  const filteredImages = usedIds ? images.filter(img => {
+    const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
+    return usedIds.has(itemId);
+  }) : images;
   
   const FunctionOptions = `
 type FunctionOptions = {
@@ -188,14 +175,16 @@ type FunctionOptions = {
     let itemMap = new Set<string>();
     let items = new Set<string>();
 
-    // 3Dアイテムリストを取得（キャッシュがあれば使用、なければ空配列）
-    const items3dList = await itemManager.get3DItemsLazy(versionId);
-    items3dList.forEach(id => items.add(id));
+    if (usedIds !== undefined) {
+      usedIds.forEach(id => items.add(id));
+    } else {
+      const items3dList = await itemManager.get3DItemsLazy(versionId);
+      items3dList.forEach(id => items.add(id));
 
-    const itemIds = await itemManager.getItemIds(versionId);
-    itemIds.forEach(id => items.add(id));
+      const itemIds = await itemManager.getItemIds(versionId);
+      itemIds.forEach(id => items.add(id));
+    }
 
-      // フィルタード画像からのみマップを生成
     const itemMapPromises = filteredImages.map(async (img) => {
       const itemId = "minecraft:" + img.path.split('/').pop()?.replace(/\.[^.]+$/, '');
 

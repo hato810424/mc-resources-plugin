@@ -157,7 +157,12 @@ export class McResourcesCore {
         versionId: this.config.mcVersion,
         itemsUrlMap,
       });
-      const tsCode = await generateTypeDefinitions({ images, itemManager, versionId: this.config.mcVersion });
+      const tsCode = await generateTypeDefinitions({
+        images,
+        itemManager,
+        versionId: this.config.mcVersion,
+        usedIds,
+      });
 
       // ファイルを書き込む
       writeFiles(this.config.outputPath, jsCode, tsCode);
@@ -284,15 +289,8 @@ export class McResourcesCore {
    * Build
    */
   async build(options: { distDir: string }): Promise<void> {
-    // 出力ディレクトリを初期化
     initializeOutputDirectory(this.config.outputPath, this.config.emptyOutDir);
-    
-    try {
-      await this.getAssetsInBuildMode();
-    } catch (err) {
-      defaultLogger.warn(`Failed to get assets: ${err}`);
-    }
-    
+
     // ビルド開始時に、使用されているMinecraft IDをスキャン（オプション情報も抽出）
     const root = process.cwd();
     const scanResult = scanSourceCode(root, {
@@ -310,7 +308,8 @@ export class McResourcesCore {
 
     // ファイル生成（実際のレンダリングURLを渡す）
     await this.generateFiles({ 
-      usedIds: detectedIds.size > 0 ? detectedIds : undefined,
+      isBuild: true,
+      usedIds: detectedIds,
       itemsUrlMap 
     });
   }
